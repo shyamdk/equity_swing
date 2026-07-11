@@ -264,3 +264,94 @@ Each emits a **pass/fail checklist** persisted to `signals.details` (JSONB) for 
 - 🔴 Rotate Angel One credentials, update `.env`, then run a full ingest to refresh the
   stale (→2026-03-23) data.
 - Optionally wire official NIFTY 50 as an alternate benchmark once creds work (D6).
+
+---
+
+## 11. Programmer To Do (tasks that need **you**)
+
+These are the items only you can do (accounts, credentials, decisions). Ordered by
+priority. Check them off as you go.
+
+### 🔴 T1 — Rotate the leaked Angel One credentials  *(security-critical, blocks live data)*
+The old key/PIN/TOTP were exposed in git history (§8) **and** the historical API now
+rejects the old key. Do a full rotation:
+
+1. **API key** — log in to <https://smartapi.angelbroking.com/> (developer portal) →
+   **My Apps**. Delete the app whose key is `FOYSHNRk`, then **Create App**.
+   - App type must have **Historical Data** access (this is why `getCandleData` returned
+     `Invalid API Key` even though login worked — see T2).
+   - Copy the **new API key**.
+2. **Trading PIN** — in the Angel One app: Profile → Settings → **Reset PIN**. Choose a
+   new 4-digit PIN (the old `6791` is compromised).
+3. **TOTP secret** — Angel One app: Profile → Security → **Enable/Reset TOTP**. Remove the
+   old entry from your authenticator app, scan the new QR, and **save the new base32
+   secret string** (shown next to/under the QR).
+4. **Update `.env`** (see T3), then **verify**:
+   ```bash
+   source venv/bin/activate
+   python -m backend.cli ingest-symbols RELIANCE
+   # expect: "5min/1day … rows" written, NOT "Invalid API Key"
+   ```
+
+### 🔴 T2 — Confirm Historical Data API entitlement
+Login succeeds but `getCandleData` fails, which usually means the app key lacks historical
+access. When creating the app in T1:
+- Ensure the app is enabled for **Historical Data** (SmartAPI historical/candle endpoint).
+- If the portal separates "Trading" vs "Historical Data" / "Market Feed" apps, use the key
+  from the one with historical enabled.
+- Sanity check after rotation: the RELIANCE command in T1.4 should return candles.
+
+### 🔴 T3 — Update `.env` with the new secrets
+Edit `/Users/shyamdk/Developer/equity_swing/.env` (this file is gitignored — safe):
+```
+ANGEL_API_KEY=<new key from T1>
+ANGEL_CLIENT_ID=S57280135          # unchanged (not a secret, but fine to keep)
+ANGEL_PIN=<new PIN from T1>
+ANGEL_TOTP_SECRET=<new base32 secret from T1>
+```
+Do **not** put these in `.env.example`. After saving, run T1.4 to confirm.
+
+### 🟠 T4 — Run a full data refresh (after T1–T3)
+The migrated data is stale (→ 2026-03-23). Once live ingest works:
+```bash
+source venv/bin/activate
+python -m backend.cli ingest            # full Nifty 500 delta (parallel, rate-limited)
+python -m backend.cli stats             # confirm row counts grew & dates are current
+# then rebuild analytics on fresh data:
+python -c "from backend.services.benchmark import build_benchmark; print(build_benchmark())"
+python -c "from backend.services.sector import build_sector_metrics; print(build_sector_metrics())"
+```
+Note: a first full intraday backfill for 500 symbols at ~1 req/s takes a while (tens of
+minutes). Keep the machine awake.
+
+### 🟡 T5 — Decide paper-trading parameters (input for Q4/Q5, slice 2)
+Before I build the sizing/exit services, confirm the defaults or give your numbers:
+- **Starting capital** (₹) — used by Q4 to size positions. (doc example uses ₹1,00,000)
+- **Risk per trade** — default **1%** of capital.
+- **Max open positions** — default **6**; **max per position** — default **20%**.
+- **Exit ladder** — breakeven +1R, book half +2R, Chandelier 3×ATR trail, 15-day time stop.
+
+Reply with "use defaults" or your overrides; I'll wire them into `services/` + config.
+
+### 🟡 T6 — Keep infra running while working
+- **Docker Desktop** must be running for the DB (`docker compose up -d`; check with
+  `docker ps` — container `equity_swing_db`).
+- If you reboot: `docker compose up -d` again (data persists in the `pgdata` volume).
+
+### 🟢 T7 — (Optional) Notifications
+If you want ntfy push / email alerts later:
+- **ntfy**: install the ntfy app, subscribe to a unique topic, set `NTFY_TOPIC` in `.env`.
+- **Email**: create a Gmail **App Password** (Google Account → Security → App Passwords)
+  and set `SMTP_USER` / `SMTP_PASSWORD` / `NOTIFY_EMAIL`. (An app password is already in
+  `.env`; verify it still works or regenerate.)
+
+### 🟢 T8 — (Optional, before any non-local deployment) Harden the DB password
+`POSTGRES_PASSWORD`/`DATABASE_URL` currently use `equity_local_pw` (fine for localhost).
+If this ever runs outside your machine, set a strong password in `.env` and
+`docker compose down && docker compose up -d` (note: changing the password after the volume
+is initialized requires either recreating the role or resetting the `pgdata` volume).
+
+### ✅ Already satisfied (no action)
+- **Node.js** v25.8.1 + **npm** 11 installed → frontend (Phase 2) prerequisite met.
+- **Python** 3.14.6 venv with `psycopg[binary]` + SQLAlchemy verified.
+- **gh** CLI installed; SSH push to GitHub working.
