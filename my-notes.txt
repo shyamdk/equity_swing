@@ -1,0 +1,92 @@
+I want to create a swing trading modules
+There are atleast two parts to it, lets start with
+
+1. Data Ingestor and Processor - this module downloads OHLC data for NSE 500 stocks (ind_nifty500list.csv)
+and calculates all required indicators (e.g RSI, CCI) and stores them in the same table. Every time the program 
+runs, it should only update the difference in data. We will create data for the following intervals - 75 minutes,
+125 minutes, 1 Day, 1 Week, when the program runs for the first time, we can get the data for last 100 days.
+After that it will be only the delta (so maintain all required flags)
+
+we can use angelone for the data. let me know what information needs to be updated in .env for this.
+Also, create a python virtual env. and install all required libraries in it.
+we will use python, steamlit, sqllite and related libraries
+
+2. I want to create a scanner screen (another tab)- call it signal, 
+which will shortlist stocks based on the following criteria.
+- average RSI for last 5 days is lower than 50
+- in any of the subseqent candles - CCI peaked above 100 and RSI went above 50 
+and volume is/was 4x previous 5 days volume
+
+
+
+************full logic****************
+📌 Stock Selection Criteria
+
+Filter stocks based on the following conditions:
+
+RSI Breakout After Consolidation
+RSI crosses above 50 after staying below it for more than two weeks.
+
+RSI Strength Confirmation
+RSI is trading above its RSI Moving Average (RSI-MA).
+
+CCI Exhaustion Signal
+CCI is above +100, indicating strong momentum / potential exhaustion.
+
+Resistance Rejection
+Price shows a clear rejection at a key resistance level.
+
+High Volume Confirmation
+Volume is at least 5× the average volume of the last 10 days.
+
+🎯 Entry Strategy
+Step 1: Wait for Volume Dryness
+
+Volume should drop significantly.
+
+It must be at least 4× lower than the volume of the rejection candle.
+
+Step 2: Entry Options
+🔹 Option A: Lower Timeframe Entry (125-min or 75-min)
+
+RSI has crossed above 50 and is retracing toward its RSI-MA
+OR
+
+Look for a “W” pattern or “V” pattern forming just below the RSI Moving Average (higher risk, early entry).
+
+🔹 Option B: Daily Timeframe Entry
+
+RSI has crossed above 50 and is retracing toward its RSI-MA before continuation.
+
+
+
+Narrow downloads
+stock news sentiment analysis and sector analysis, we might be able to narrow down on the list of signals
+
+
+create a tab - Nifty Chart- which show nifty50 on top -chart with OHLC with volume . Use websockets for this, so that the data is as frequent as possible. (second data?). I have geven details of both Angel one and Dhan. which ever provides the good API, use that. Also plot RSI and its moving average in the below the OHLC chart. Similar to attached image -
+
+
+
+
+
+New SIVA Scanner - 
+Weekly RSI (14) is between 50 and 75
+RSI ≥ 50
+RSI ≤ 75
+RSI behavior in recent past (important insight)
+In the last 10 days, RSI was below 50 for at least 5 days
+Volume strength
+Volume is increasing (≥ 4 periods)
+Price strength vs highs
+Weekly high is greater than the highest price of the last 33 days
+RSI trend confirmation
+Weekly RSI is above its moving average (RSI-MA)
+CCI indicator strength
+Weekly CCI (20) ≥ 90
+Price filter
+Stock price (close) ≥ ₹25
+Volume filter
+5-day average volume ≥ 100,000
+Market cap filter
+Market capitalization ≥ ₹500 crore

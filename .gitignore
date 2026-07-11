@@ -1,0 +1,32 @@
+# --- Secrets ---
+.env
+.env.local
+.env*.local
+
+# --- Python ---
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# --- Databases (large / regenerable / migrating to Postgres+TimescaleDB) ---
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# --- Logs ---
+logs/
+*.log
+
+# --- OS ---
+.DS_Store
+
+# --- Node / Next.js (frontend) ---
+node_modules/
+frontend/node_modules/
+.next/
+out/
+build/
