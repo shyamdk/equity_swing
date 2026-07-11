@@ -1,0 +1,20 @@
+# Backend (FastAPI + Postgres/TimescaleDB) — Python 3.14
+# Data / indicators (reused engine)
+pandas>=2.0.0
+numpy>=1.24.0
+ta>=0.11.0
+smartapi-python>=1.3.6
+pyotp>=2.9.0
+requests>=2.31.0
+websocket-client>=1.6.0
+python-dotenv>=1.0.0
+loguru>=0.7.0
+
+# Database
+SQLAlchemy>=2.0.0
+psycopg[binary]>=3.2
+
+# API (added in Phase 1.6)
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+pydantic>=2.7.0

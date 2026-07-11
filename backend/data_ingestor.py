@@ -20,26 +20,26 @@ from typing import Callable
 import pandas as pd
 from loguru import logger
 
-from src.config import (
+from backend.config import (
     INITIAL_LOOKBACK_DAYS,
     INITIAL_LOOKBACK_DAYS_DAILY,
     ANGEL_INTERVALS,
     RESAMPLE_RULES,
     ALL_INTERVALS,
     INTRADAY_INTERVALS,
-    SYMBOL_CSV,
+    NIFTY500_CSV,
     API_MAX_WORKERS,
-    DB_PATH,
 )
-from src.angel_client import AngelClient
-from src.database import (
+from backend.angel_client import AngelClient
+from backend.database import (
     init_db,
     upsert_ohlcv,
     get_last_ingested_at,
     set_last_ingested_at,
     get_latest_candles,
 )
-from src.indicators import calculate_indicators
+from backend.db import read_sql
+from backend.indicators import calculate_indicators
 
 
 # ---------------------------------------------------------------------------
@@ -47,14 +47,12 @@ from src.indicators import calculate_indicators
 # ---------------------------------------------------------------------------
 
 def load_symbols() -> list[str]:
-    """Read all NSE EQ-series symbols from EQUITY_L.csv."""
-    df = pd.read_csv(SYMBOL_CSV)
-    # Strip leading/trailing spaces from column names
+    """Read the Nifty 500 universe (EQ series) from ind_nifty500list.csv."""
+    df = pd.read_csv(NIFTY500_CSV)
     df.columns = df.columns.str.strip()
-    # Keep only EQ series (skip BE = trade-for-trade, BZ = suspended)
-    df = df[df["SERIES"].str.strip() == "EQ"]
-    symbols = df["SYMBOL"].dropna().str.strip().tolist()
-    logger.info(f"Loaded {len(symbols)} symbols from {SYMBOL_CSV}")
+    df = df[df["Series"].str.strip() == "EQ"]
+    symbols = df["Symbol"].dropna().str.strip().tolist()
+    logger.info(f"Loaded {len(symbols)} symbols from {NIFTY500_CSV.name}")
     return symbols
 
 
@@ -183,11 +181,10 @@ def _process_and_store(
         return
     df["symbol"] = symbol
     df = calculate_indicators(df, is_intraday=is_intraday)
-    # Convert timestamp to ISO string for SQLite
-    df["timestamp"] = pd.to_datetime(df["timestamp"]).dt.strftime("%Y-%m-%dT%H:%M:%S")
+    df["timestamp"] = pd.to_datetime(df["timestamp"])   # naive IST; upsert localizes
     count = upsert_ohlcv(interval, df)
     if count > 0:
-        latest = df["timestamp"].max()
+        latest = pd.Timestamp(df["timestamp"].max()).strftime("%Y-%m-%dT%H:%M:%S")
         set_last_ingested_at(symbol, interval, latest)
         logger.debug(f"{symbol} [{interval}] → {count} rows, latest={latest}")
 
@@ -232,7 +229,7 @@ def ingest_symbol(symbol: str, client: AngelClient, dry_run: bool = False) -> di
     # Resampling from DB avoids an extra API call and guarantees correct full-week OHLCV
     # even on delta runs (INSERT OR REPLACE handles partial weeks automatically).
     if not dry_run:
-        df_1d_db = get_latest_candles(symbol, "1day", n=60, db_path=DB_PATH)
+        df_1d_db = get_latest_candles(symbol, "1day", n=60)
         if not df_1d_db.empty:
             df_1d_db["symbol"] = symbol
             df_1w = _resample_daily_to_weekly(df_1d_db)
@@ -384,13 +381,9 @@ def backfill_weekly(
 
     Returns the total number of weekly candles written.
     """
-    import sqlite3
-    with sqlite3.connect(str(DB_PATH)) as conn:
-        symbols = [
-            r[0] for r in conn.execute(
-                "SELECT DISTINCT symbol FROM ohlcv_1day ORDER BY symbol"
-            ).fetchall()
-        ]
+    symbols = read_sql(
+        "SELECT DISTINCT symbol FROM ohlcv WHERE interval = '1day' ORDER BY symbol"
+    )["symbol"].tolist()
 
     total = len(symbols)
     written = 0
@@ -400,7 +393,7 @@ def backfill_weekly(
         if progress_callback:
             progress_callback(idx, total, symbol)
         try:
-            df_1d = get_latest_candles(symbol, "1day", n=200, db_path=DB_PATH)
+            df_1d = get_latest_candles(symbol, "1day", n=200)
             if df_1d.empty:
                 continue
             df_1d["symbol"] = symbol

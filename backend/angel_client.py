@@ -9,7 +9,7 @@ import pandas as pd
 from loguru import logger
 from SmartApi import SmartConnect
 
-from src.config import (
+from backend.config import (
     ANGEL_API_KEY,
     ANGEL_CLIENT_ID,
     ANGEL_PIN,

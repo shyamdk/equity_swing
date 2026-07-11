@@ -1,275 +1,213 @@
-"""SQLite database: schema creation, upsert, and ingestion-state management."""
-import sqlite3
-from contextlib import contextmanager
+"""Postgres/TimescaleDB access: ohlcv upsert, ingestion state, and read helpers.
+
+The physical schema is a single `ohlcv` hypertable keyed by (symbol, interval, ts),
+created by db/init/01_schema.sql on first container boot. This module speaks to it
+while preserving the *column names the rest of the codebase expects* (timestamp,
+bb_middle, ema_20/50/200) on reads, so ported scanner/resample code keeps working.
+"""
+from __future__ import annotations
+
 from datetime import datetime
-from pathlib import Path
-from typing import Iterator
 
 import numpy as np
 import pandas as pd
 from loguru import logger
+from sqlalchemy import text
 
-from src.config import DB_PATH, ALL_INTERVALS, INTRADAY_INTERVALS
+from backend.config import ALL_INTERVALS, INTRADAY_INTERVALS, MARKET_TZ
+from backend.db import get_engine, read_sql, scalar
 
-
-# ---------------------------------------------------------------------------
-# Schema
-# ---------------------------------------------------------------------------
-
-_CREATE_OHLCV_TABLE = """
-CREATE TABLE IF NOT EXISTS ohlcv_{interval} (
-    symbol       TEXT NOT NULL,
-    timestamp    TEXT NOT NULL,
-    open         REAL,
-    high         REAL,
-    low          REAL,
-    close        REAL,
-    volume       INTEGER,
-    rsi          REAL,
-    cci          REAL,
-    macd         REAL,
-    macd_signal  REAL,
-    macd_hist    REAL,
-    bb_upper     REAL,
-    bb_middle    REAL,
-    bb_lower     REAL,
-    ema_20       REAL,
-    ema_50       REAL,
-    ema_200      REAL,
-    atr          REAL,
-    vwap         REAL,
-    PRIMARY KEY (symbol, timestamp)
-);
-"""
-
-_CREATE_INGESTION_STATE = """
-CREATE TABLE IF NOT EXISTS ingestion_state (
-    symbol           TEXT NOT NULL,
-    interval         TEXT NOT NULL,
-    last_ingested_at TEXT,
-    PRIMARY KEY (symbol, interval)
-);
-"""
-
-
-def init_db(db_path: Path = DB_PATH) -> None:
-    """Create all required tables if they don't exist."""
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-    with connect(db_path) as conn:
-        for interval in ALL_INTERVALS:
-            conn.execute(_CREATE_OHLCV_TABLE.format(interval=interval))
-        conn.execute(_CREATE_INGESTION_STATE)
-        conn.commit()
-    logger.info(f"Database initialised at {db_path}")
+# Physical ohlcv columns (new schema).
+_OHLCV_COLS = [
+    "symbol", "interval", "ts", "open", "high", "low", "close", "volume",
+    "rsi", "cci", "macd", "macd_signal", "macd_hist",
+    "bb_upper", "bb_mid", "bb_lower", "ema20", "ema50", "ema200", "atr", "vwap",
+]
+# Legacy indicator/column names (as produced by indicators.py) → physical names.
+_RENAME_TO_PHYSICAL = {
+    "timestamp": "ts", "bb_middle": "bb_mid",
+    "ema_20": "ema20", "ema_50": "ema50", "ema_200": "ema200",
+}
 
 
 # ---------------------------------------------------------------------------
-# Connection helper
+# Schema / connectivity
 # ---------------------------------------------------------------------------
 
-@contextmanager
-def connect(db_path: Path = DB_PATH) -> Iterator[sqlite3.Connection]:
-    conn = sqlite3.connect(str(db_path))
-    conn.execute("PRAGMA journal_mode=WAL")
-    try:
-        yield conn
-    finally:
-        conn.close()
+def init_db() -> None:
+    """Verify the Postgres schema is present (created by docker init script)."""
+    exists = scalar(
+        "SELECT to_regclass('public.ohlcv') IS NOT NULL"
+    )
+    if not exists:
+        raise RuntimeError(
+            "Table 'ohlcv' not found. Start the database with "
+            "`docker compose up -d` (the schema is created on first boot)."
+        )
+    logger.debug("Postgres schema verified (ohlcv present).")
 
 
 # ---------------------------------------------------------------------------
-# Upsert helpers
+# OHLCV upsert
 # ---------------------------------------------------------------------------
 
-def upsert_ohlcv(interval: str, df: pd.DataFrame, db_path: Path = DB_PATH) -> int:
+def upsert_ohlcv(interval: str, df: pd.DataFrame) -> int:
+    """Insert/update rows for one (symbol, interval) into the ohlcv hypertable.
+
+    Accepts a DataFrame using the legacy column names (timestamp, bb_middle,
+    ema_20…). Naive timestamps are treated as IST. Returns rows written.
     """
-    Insert or replace rows from `df` into ohlcv_{interval}.
-
-    Required columns: symbol, timestamp, open, high, low, close, volume.
-    Indicator columns are optional (NaN → NULL).
-
-    Returns the number of rows written.
-    """
-    if df.empty:
+    if df is None or df.empty:
         return 0
 
-    table = f"ohlcv_{interval}"
-    cols = [
-        "symbol", "timestamp", "open", "high", "low", "close", "volume",
-        "rsi", "cci", "macd", "macd_signal", "macd_hist",
-        "bb_upper", "bb_middle", "bb_lower",
-        "ema_20", "ema_50", "ema_200", "atr", "vwap",
-    ]
-    # Add missing columns as None
-    for col in cols:
-        if col not in df.columns:
-            df[col] = None
+    df = df.rename(columns=_RENAME_TO_PHYSICAL).copy()
+    df["interval"] = interval
 
-    # Strip VWAP for non-intraday
+    # Normalize ts → tz-aware IST so storage is unambiguous regardless of server TZ.
+    ts = pd.to_datetime(df["ts"])
+    if ts.dt.tz is None:
+        ts = ts.dt.tz_localize(MARKET_TZ)
+    df["ts"] = ts
+
+    # VWAP only meaningful intraday.
     if interval not in INTRADAY_INTERVALS:
         df["vwap"] = None
 
-    rows = df[cols].where(pd.notnull(df[cols]), None).values.tolist()
-    placeholders = ", ".join(["?"] * len(cols))
-    sql = f"INSERT OR REPLACE INTO {table} ({', '.join(cols)}) VALUES ({placeholders})"
+    for col in _OHLCV_COLS:
+        if col not in df.columns:
+            df[col] = None
 
-    with connect(db_path) as conn:
-        conn.executemany(sql, rows)
-        conn.commit()
+    df = df[_OHLCV_COLS]
+    records = df.astype(object).where(pd.notnull(df), None).to_dict("records")
 
-    logger.debug(f"Upserted {len(rows)} rows into {table}")
-    return len(rows)
+    cols = ", ".join(_OHLCV_COLS)
+    placeholders = ", ".join(f":{c}" for c in _OHLCV_COLS)
+    updates = ", ".join(
+        f"{c} = EXCLUDED.{c}" for c in _OHLCV_COLS
+        if c not in ("symbol", "interval", "ts")
+    )
+    sql = text(
+        f"INSERT INTO ohlcv ({cols}) VALUES ({placeholders}) "
+        f"ON CONFLICT (symbol, interval, ts) DO UPDATE SET {updates}"
+    )
+    with get_engine().begin() as conn:
+        conn.execute(sql, records)
 
-
-# ---------------------------------------------------------------------------
-# Ingestion state
-# ---------------------------------------------------------------------------
-
-def get_last_ingested_at(symbol: str, interval: str, db_path: Path = DB_PATH) -> str | None:
-    """Return ISO8601 timestamp of the last ingested candle, or None on first run."""
-    with connect(db_path) as conn:
-        row = conn.execute(
-            "SELECT last_ingested_at FROM ingestion_state WHERE symbol=? AND interval=?",
-            (symbol, interval),
-        ).fetchone()
-    return row[0] if row else None
-
-
-def set_last_ingested_at(symbol: str, interval: str, ts: str, db_path: Path = DB_PATH) -> None:
-    """Upsert the ingestion watermark for a (symbol, interval) pair."""
-    with connect(db_path) as conn:
-        conn.execute(
-            """
-            INSERT INTO ingestion_state (symbol, interval, last_ingested_at)
-            VALUES (?, ?, ?)
-            ON CONFLICT(symbol, interval) DO UPDATE SET last_ingested_at=excluded.last_ingested_at
-            """,
-            (symbol, interval, ts),
-        )
-        conn.commit()
+    logger.debug(f"Upserted {len(records)} rows into ohlcv [{interval}]")
+    return len(records)
 
 
 # ---------------------------------------------------------------------------
-# Read helpers (for Streamlit UI)
+# Ingestion state  (last_ingested_at stored as timestamptz, exchanged as IST ISO str)
 # ---------------------------------------------------------------------------
 
-def reset_ingestion_state(
-    intervals: list[str] | None = None,
-    db_path: Path = DB_PATH,
-) -> int:
-    """Delete ingestion_state rows for the given intervals (or all if None).
+def get_last_ingested_at(symbol: str, interval: str) -> str | None:
+    """Return the last ingested candle time as a naive-IST ISO8601 string, or None."""
+    df = read_sql(
+        "SELECT (last_ingested_at AT TIME ZONE :tz) AS t "
+        "FROM ingestion_state WHERE symbol = :s AND interval = :i",
+        {"tz": MARKET_TZ, "s": symbol, "i": interval},
+    )
+    if df.empty or pd.isna(df["t"].iloc[0]):
+        return None
+    return pd.Timestamp(df["t"].iloc[0]).strftime("%Y-%m-%dT%H:%M:%S")
 
-    This forces the next ingestion run to treat affected symbols as first-run,
-    so they re-fetch the full lookback window instead of just the delta.
-    Returns the number of rows deleted.
-    """
-    with connect(db_path) as conn:
+
+def set_last_ingested_at(symbol: str, interval: str, ts: str) -> None:
+    """Upsert the watermark. `ts` is a naive-IST ISO8601 string."""
+    sql = text(
+        "INSERT INTO ingestion_state (symbol, interval, last_ingested_at) "
+        "VALUES (:s, :i, (CAST(:ts AS timestamp) AT TIME ZONE :tz)) "
+        "ON CONFLICT (symbol, interval) DO UPDATE "
+        "SET last_ingested_at = EXCLUDED.last_ingested_at, updated_at = now()"
+    )
+    with get_engine().begin() as conn:
+        conn.execute(sql, {"s": symbol, "i": interval, "ts": ts, "tz": MARKET_TZ})
+
+
+def reset_ingestion_state(intervals: list[str] | None = None) -> int:
+    """Delete ingestion_state rows (all, or for given intervals) to force full re-fetch."""
+    with get_engine().begin() as conn:
         if intervals is None:
-            n = conn.execute("DELETE FROM ingestion_state").rowcount
+            res = conn.execute(text("DELETE FROM ingestion_state"))
         else:
-            placeholders = ",".join("?" * len(intervals))
-            n = conn.execute(
-                f"DELETE FROM ingestion_state WHERE interval IN ({placeholders})",
-                intervals,
-            ).rowcount
-        conn.commit()
-    logger.info(f"Reset ingestion state: {n} rows deleted (intervals={intervals or 'all'})")
+            res = conn.execute(
+                text("DELETE FROM ingestion_state WHERE interval = ANY(:ivals)"),
+                {"ivals": intervals},
+            )
+        n = res.rowcount
+    logger.info(f"Reset ingestion state: {n} rows (intervals={intervals or 'all'})")
     return n
 
 
-def get_ingestion_status(db_path: Path = DB_PATH) -> pd.DataFrame:
-    """Return a DataFrame of all (symbol, interval, last_ingested_at) rows."""
-    with connect(db_path) as conn:
-        df = pd.read_sql_query("SELECT * FROM ingestion_state ORDER BY symbol, interval", conn)
-    return df
+# ---------------------------------------------------------------------------
+# Reads
+# ---------------------------------------------------------------------------
+
+def get_ingestion_status() -> pd.DataFrame:
+    """All (symbol, interval, last_ingested_at[IST]) rows."""
+    return read_sql(
+        "SELECT symbol, interval, (last_ingested_at AT TIME ZONE :tz) AS last_ingested_at "
+        "FROM ingestion_state ORDER BY symbol, interval",
+        {"tz": MARKET_TZ},
+    )
 
 
-def get_latest_candles(
-    symbol: str, interval: str, n: int = 100, db_path: Path = DB_PATH
-) -> pd.DataFrame:
-    """Fetch the last N candles for a given symbol and interval."""
-    table = f"ohlcv_{interval}"
-    with connect(db_path) as conn:
-        df = pd.read_sql_query(
-            f"SELECT * FROM {table} WHERE symbol=? ORDER BY timestamp DESC LIMIT ?",
-            conn,
-            params=(symbol, n),
-        )
-    return df.iloc[::-1].reset_index(drop=True)  # oldest first
+def get_latest_candles(symbol: str, interval: str, n: int = 100) -> pd.DataFrame:
+    """Last N candles (oldest-first) for symbol/interval, with legacy column names."""
+    df = read_sql(
+        "SELECT symbol, (ts AT TIME ZONE :tz) AS timestamp, open, high, low, close, volume, "
+        "rsi, cci, macd, macd_signal, macd_hist, bb_upper, bb_mid AS bb_middle, bb_lower, "
+        "ema20 AS ema_20, ema50 AS ema_50, ema200 AS ema_200, atr, vwap "
+        "FROM ohlcv WHERE symbol = :s AND interval = :i ORDER BY ts DESC LIMIT :n",
+        {"tz": MARKET_TZ, "s": symbol, "i": interval, "n": n},
+    )
+    return df.iloc[::-1].reset_index(drop=True)
 
 
-def get_stale_symbols(
-    interval: str = "1day",
-    stale_business_days: int = 2,
-    db_path: Path = DB_PATH,
-) -> list[str]:
-    """Return symbols whose data is stale (or never ingested) for the given interval.
+def get_symbols() -> list[str]:
+    """Distinct symbols present in ingestion_state."""
+    df = read_sql("SELECT DISTINCT symbol FROM ingestion_state ORDER BY symbol")
+    return df["symbol"].tolist()
 
-    Staleness is measured in *business days* (Mon–Fri, no holiday calendar) so that
-    stocks last updated on a Friday are not flagged as stale over a weekend.
 
-    A symbol is considered stale if:
-      - it has never been ingested (no row in ingestion_state), OR
-      - the number of business days between last_ingested_at and today > stale_business_days
+def get_stale_symbols(interval: str = "1day", stale_business_days: int = 2) -> list[str]:
+    """Symbols whose data is stale (or never ingested) for the given interval.
+
+    Staleness measured in business days (Mon–Fri, no holiday calendar).
     """
     today = np.datetime64(datetime.now().date(), "D")
+    rows = read_sql(
+        "SELECT symbol, (last_ingested_at AT TIME ZONE :tz) AS last_at "
+        "FROM ingestion_state WHERE interval = :i",
+        {"tz": MARKET_TZ, "i": interval},
+    )
 
-    with connect(db_path) as conn:
-        rows = conn.execute(
-            "SELECT symbol, last_ingested_at FROM ingestion_state WHERE interval = ?",
-            (interval,),
-        ).fetchall()
-
-    stale = []
-    seen = {symbol for symbol, _ in rows}
-
-    for symbol, last_at in rows:
-        if not last_at:
-            stale.append(symbol)
+    stale: list[str] = []
+    seen = set(rows["symbol"].tolist())
+    for _, r in rows.iterrows():
+        last_at = r["last_at"]
+        if pd.isna(last_at):
+            stale.append(r["symbol"])
             continue
-        try:
-            last_date = np.datetime64(datetime.fromisoformat(last_at).date(), "D")
-            bdays = int(np.busday_count(last_date, today))
-            if bdays > stale_business_days:
-                stale.append(symbol)
-        except Exception:
-            stale.append(symbol)
+        last_date = np.datetime64(pd.Timestamp(last_at).date(), "D")
+        if int(np.busday_count(last_date, today)) > stale_business_days:
+            stale.append(r["symbol"])
 
-    # Also include symbols in the OHLCV table but missing from ingestion_state
-    table = f"ohlcv_{interval}"
-    try:
-        with connect(db_path) as conn:
-            all_in_table = {
-                r[0]
-                for r in conn.execute(
-                    f"SELECT DISTINCT symbol FROM {table}"
-                ).fetchall()
-            }
-        for sym in all_in_table - seen:
-            stale.append(sym)
-    except Exception:
-        pass
+    # Symbols with candles but no ingestion_state row.
+    in_table = read_sql(
+        "SELECT DISTINCT symbol FROM ohlcv WHERE interval = :i", {"i": interval}
+    )["symbol"].tolist()
+    stale.extend(set(in_table) - seen)
 
     return sorted(set(stale))
 
 
-def get_symbols(db_path: Path = DB_PATH) -> list[str]:
-    """Return distinct symbols present in ingestion_state."""
-    with connect(db_path) as conn:
-        rows = conn.execute(
-            "SELECT DISTINCT symbol FROM ingestion_state ORDER BY symbol"
-        ).fetchall()
-    return [r[0] for r in rows]
-
-
-def get_db_stats(db_path: Path = DB_PATH) -> dict:
-    """Return row counts per table and file size."""
-    stats = {}
-    if db_path.exists():
-        stats["db_size_mb"] = round(db_path.stat().st_size / 1024 / 1024, 2)
-    with connect(db_path) as conn:
-        for interval in ALL_INTERVALS:
-            table = f"ohlcv_{interval}"
-            row = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()
-            stats[table] = row[0]
+def get_db_stats() -> dict:
+    """Row counts per interval + total."""
+    df = read_sql(
+        "SELECT interval, count(*) AS rows FROM ohlcv GROUP BY interval ORDER BY interval"
+    )
+    stats = {f"ohlcv_{r['interval']}": int(r["rows"]) for _, r in df.iterrows()}
+    stats["total_rows"] = int(df["rows"].sum()) if not df.empty else 0
     return stats

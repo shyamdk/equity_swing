@@ -13,11 +13,24 @@ ANGEL_CLIENT_ID = os.getenv("ANGEL_CLIENT_ID", "")
 ANGEL_PIN = os.getenv("ANGEL_PIN", "")
 ANGEL_TOTP_SECRET = os.getenv("ANGEL_TOTP_SECRET", "")
 
-# --- Database ---
-DB_PATH = Path(os.getenv("DB_PATH", str(ROOT_DIR / "data" / "equity_swing.db")))
+# --- Database (Postgres + TimescaleDB) ---
+DATABASE_URL = os.getenv(
+    "DATABASE_URL",
+    "postgresql+psycopg://equity:equity_local_pw@localhost:5432/equity_swing",
+)
+# Legacy SQLite path — kept only for the one-time daily/weekly migration.
+SQLITE_PATH = ROOT_DIR / os.getenv("SQLITE_PATH", "data/equity_swing.db")
+# Back-compat alias (some legacy modules still import DB_PATH).
+DB_PATH = SQLITE_PATH
 
-# --- Symbol list ---
+# --- Universe (Nifty 500) ---
+# ind_nifty500list.csv has columns: Company Name, Industry, Symbol, Series, ISIN Code.
+# `Industry` is the sector used by Q2.5 sector rotation.
+NIFTY500_CSV = ROOT_DIR / "ind_nifty500list.csv"
+# Full NSE EQ master (fallback / reference only).
 SYMBOL_CSV = ROOT_DIR / "EQUITY_L.csv"
+# Timezone all naive candle timestamps are expressed in.
+MARKET_TZ = "Asia/Kolkata"
 
 # --- Instrument master (Angel One public file) ---
 SCRIP_MASTER_URL = (
