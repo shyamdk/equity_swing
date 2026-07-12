@@ -265,6 +265,34 @@ def _num(v):
     return v.item() if hasattr(v, "item") else v
 
 
+def _text(v) -> str | None:
+    """NaN → NULL for text columns. Pandas merges yield NaN, not None, for misses —
+    e.g. a sector whose RRG metrics haven't warmed up yet."""
+    if v is None or (isinstance(v, float) and pd.isna(v)):
+        return None
+    return str(v)
+
+
+def _json_safe(obj):
+    """Recursively strip NaN/numpy from the context before it becomes JSON.
+
+    json.dumps happily emits a bare `NaN` token, which is not valid JSON — Postgres
+    rejects it outright. Any pandas-sourced value can be NaN, so sanitize the whole
+    tree rather than each field by hand.
+    """
+    if isinstance(obj, dict):
+        return {k: _json_safe(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_json_safe(v) for v in obj]
+    if isinstance(obj, (bool, str)) or obj is None:
+        return obj
+    if hasattr(obj, "item"):                       # numpy scalar
+        obj = obj.item()
+    if isinstance(obj, float) and (pd.isna(obj) or obj in (float("inf"), float("-inf"))):
+        return None
+    return obj
+
+
 def _insert_trade(e, sizing: dict, context: dict, cfg: dict, asof: str, run_tag: str) -> None:
     with get_engine().begin() as conn:
         conn.execute(
@@ -287,12 +315,12 @@ def _insert_trade(e, sizing: dict, context: dict, cfg: dict, asof: str, run_tag:
                 "qty": int(sizing["qty"]),
                 "stop": float(sizing["stop"]),
                 "r_value": float(sizing["risk_per_share"]),
-                "sector": e.get("sector"),
-                "quadrant": e.get("quadrant"),
+                "sector": _text(e.get("sector")),
+                "quadrant": _text(e.get("quadrant")),
                 "capital": float(cfg["CAPITAL"]),
                 "risk_pct": float(cfg["RISK_PCT"]),
                 "run_tag": run_tag,
-                "ctx": json.dumps(context, default=str),
+                "ctx": json.dumps(_json_safe(context), default=str),
             },
         )
 

@@ -16,6 +16,18 @@ def _i(name: str, default: int) -> int:
     return int(os.getenv(name, default))
 
 
+# --- Q1: the market regime ----------------------------------------------------
+# The doc says "NIFTY", meaning the real, cap-weighted index. We originally used a
+# synthetic equal-weight composite (NIFTY500EW) — but equal-weighting 500 names is
+# heavy in volatile mid/small caps, and it held the regime RED far more often than
+# the real index: 42% green vs 63% for NIFTY 50 over 2024-03 → 2026-07. That single
+# choice was throttling the trade count at the source. Use the real index.
+REGIME_BENCHMARK = os.getenv("REGIME_BENCHMARK", "NIFTY50")
+
+# Q2.5 sector RS still compares an equal-weight sector composite against the
+# equal-weight NIFTY500EW — like against like. Comparing an equal-weight sector to a
+# cap-weighted index would bake in a systematic small-vs-large-cap bias.
+
 # --- Q2: universe / liquidity -------------------------------------------------
 MIN_PRICE = _f("MIN_PRICE", 80.0)                 # ₹
 MIN_TURNOVER_CR = _f("MIN_TURNOVER_CR", 5.0)      # avg 20d turnover, ₹ crore

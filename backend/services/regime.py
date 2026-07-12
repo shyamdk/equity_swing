@@ -8,14 +8,20 @@ from __future__ import annotations
 
 import pandas as pd
 
-from backend.services.benchmark import BENCHMARK_SYMBOL, benchmark_daily
+from backend import strategy_config as C
+from backend.services._data import recent_candles
 
 
-def get_regime(asof: str | None = None) -> dict:
-    """Market-regime verdict with a pass/fail checklist, as it stood on `asof`."""
-    df = benchmark_daily(260, asof=asof)
+def get_regime(asof: str | None = None, benchmark: str | None = None) -> dict:
+    """Market-regime verdict with a pass/fail checklist, as it stood on `asof`.
+
+    Uses the REAL index (NIFTY 50 by default) — see strategy_config.REGIME_BENCHMARK
+    for why the synthetic equal-weight composite was the wrong choice here.
+    """
+    bm = benchmark or C.REGIME_BENCHMARK
+    df = recent_candles("1day", 260, [bm], asof=asof)
     if df.empty or len(df) < 200:
-        return {"benchmark": BENCHMARK_SYMBOL, "healthy": False,
+        return {"benchmark": bm, "healthy": False,
                 "reason": "insufficient benchmark history", "checklist": {}}
 
     close = df["close"]
@@ -28,7 +34,7 @@ def get_regime(asof: str | None = None) -> dict:
     healthy = above_200 and golden
 
     return {
-        "benchmark": BENCHMARK_SYMBOL,
+        "benchmark": bm,
         "asof": pd.Timestamp(df["timestamp"].iloc[-1]).strftime("%Y-%m-%d"),
         "healthy": healthy,
         "light": "🟢" if healthy else "🔴",

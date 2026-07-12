@@ -153,6 +153,8 @@ export interface Settings {
   MAX_POSITION_PCT: number;
   MAX_TOTAL_DEPLOYED_PCT: number;
   MAX_OPEN_POSITIONS: number;
+  SECTOR_SKIP_LAGGING: boolean;
+  SECTOR_AGGRESSIVE: boolean;
 }
 
 export const api = {
