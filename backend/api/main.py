@@ -246,6 +246,8 @@ class SettingsUpdate(BaseModel):
     MAX_POSITION_PCT: float | None = None
     MAX_TOTAL_DEPLOYED_PCT: float | None = None
     MAX_OPEN_POSITIONS: int | None = None
+    SECTOR_SKIP_LAGGING: bool | None = None
+    SECTOR_AGGRESSIVE: bool | None = None
 
 
 @app.get("/settings", tags=["Q4 · sizing"])

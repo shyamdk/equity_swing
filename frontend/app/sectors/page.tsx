@@ -1,6 +1,7 @@
 "use client";
 
 import RRGChart from "@/components/RRGChart";
+import SectorGate from "@/components/SectorGate";
 import { api, RRGSeries, Sector } from "@/lib/api";
 import { Card, ErrorBox, Loading, QuadrantBadge, SectionTitle } from "@/components/ui";
 import { useEffect, useState } from "react";
@@ -34,6 +35,8 @@ export default function SectorsPage() {
           <em>preference</em>, not a hard gate — except that we skip the clearly-lagging quadrant.
         </p>
       </div>
+
+      <SectorGate />
 
       <Card>
         <SectionTitle hint="Each dot is a sector; the tail is where it has been.">

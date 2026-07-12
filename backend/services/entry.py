@@ -129,10 +129,14 @@ def scan(symbols: list[str] | None = None, from_watchlist: bool = True,
         snap = snap[["sector", "quadrant", "sector_score", "rs_ratio", "rs_momentum"]]
     df = df.merge(sectors, on="symbol", how="left").merge(snap, on="sector", how="left")
 
+    # Read the gate from saved settings so it can be toggled (and A/B tested) at runtime.
+    from backend.settings import get_settings
+
+    cfg = get_settings()
     df["sector_ok"] = True
-    if C.SECTOR_AGGRESSIVE:
+    if cfg["SECTOR_AGGRESSIVE"]:
         df["sector_ok"] = df["quadrant"].isin(["leading", "improving"])
-    elif C.SECTOR_SKIP_LAGGING:
+    elif cfg["SECTOR_SKIP_LAGGING"]:
         df["sector_ok"] = df["quadrant"] != "lagging"
 
     # Sector is a gate on the *trade*, recorded in the checklist for the UI.

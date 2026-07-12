@@ -12,6 +12,12 @@ from sqlalchemy import text
 from backend import strategy_config as C
 from backend.db import get_engine, read_sql
 
+def _bool(v) -> bool:
+    if isinstance(v, bool):
+        return v
+    return str(v).strip().lower() in ("1", "true", "yes", "on")
+
+
 # Only these may be overridden from the UI. Everything else stays code/env-controlled.
 EDITABLE: dict[str, type] = {
     "CAPITAL": float,
@@ -19,6 +25,9 @@ EDITABLE: dict[str, type] = {
     "MAX_POSITION_PCT": float,
     "MAX_TOTAL_DEPLOYED_PCT": float,
     "MAX_OPEN_POSITIONS": int,
+    # Q2.5 sector gate — toggleable so it can be A/B tested against a run with it off.
+    "SECTOR_SKIP_LAGGING": _bool,
+    "SECTOR_AGGRESSIVE": _bool,
 }
 
 
