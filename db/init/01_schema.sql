@@ -72,6 +72,17 @@ CREATE TABLE ingestion_state (
 );
 
 -- ----------------------------------------------------------------------------
+-- User settings — overrides for the strategy_config defaults (capital, risk %,
+-- caps). Persisted server-side, not in the browser, because Q4 sizing and Q5
+-- exit maths (R-multiples) must agree on the same capital.
+-- ----------------------------------------------------------------------------
+CREATE TABLE settings (
+    key        TEXT PRIMARY KEY,
+    value      TEXT NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- ----------------------------------------------------------------------------
 -- Q2.5 sector rotation — daily composite + RRG metrics per sector.
 -- ----------------------------------------------------------------------------
 CREATE TABLE sector_metrics (

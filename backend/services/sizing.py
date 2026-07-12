@@ -46,8 +46,15 @@ def size_position(
       3. total cash   : <= MAX_TOTAL_DEPLOYED_PCT of capital across all open trades
       4. slot limit   : reject if already at MAX_OPEN_POSITIONS
     """
-    capital = capital if capital is not None else C.CAPITAL
-    risk_pct = risk_pct if risk_pct is not None else C.RISK_PCT
+    # Saved settings are the source of truth; explicit args still win (what-if runs).
+    from backend.settings import get_settings
+
+    cfg = get_settings()
+    capital = capital if capital is not None else cfg["CAPITAL"]
+    risk_pct = risk_pct if risk_pct is not None else cfg["RISK_PCT"]
+    max_position_pct = cfg["MAX_POSITION_PCT"]
+    max_deployed_pct = cfg["MAX_TOTAL_DEPLOYED_PCT"]
+    max_open = int(cfg["MAX_OPEN_POSITIONS"])
 
     s = compute_stop(entry, atr, swing_low)
     stop = s["stop"]
@@ -55,18 +62,17 @@ def size_position(
 
     if risk_per_share <= 0:
         return {**s, "qty": 0, "reason": "stop is at/above entry — no valid trade"}
-    if open_positions >= C.MAX_OPEN_POSITIONS:
-        return {**s, "qty": 0,
-                "reason": f"already at max {C.MAX_OPEN_POSITIONS} open positions"}
+    if open_positions >= max_open:
+        return {**s, "qty": 0, "reason": f"already at max {max_open} open positions"}
 
     target_risk = capital * risk_pct / 100.0
     qty_risk = math.floor(target_risk / risk_per_share)
 
     # 2. per-position concentration cap
-    qty_position = math.floor(capital * C.MAX_POSITION_PCT / 100.0 / entry) if entry > 0 else 0
+    qty_position = math.floor(capital * max_position_pct / 100.0 / entry) if entry > 0 else 0
 
     # 3. remaining cash under the total-deployment ceiling
-    room = capital * C.MAX_TOTAL_DEPLOYED_PCT / 100.0 - deployed_value
+    room = capital * max_deployed_pct / 100.0 - deployed_value
     qty_cash = math.floor(max(room, 0.0) / entry) if entry > 0 else 0
 
     qty = max(min(qty_risk, qty_position, qty_cash), 0)

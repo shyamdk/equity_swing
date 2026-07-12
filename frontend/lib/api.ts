@@ -105,8 +105,26 @@ async function get<T>(path: string): Promise<T> {
   return res.json();
 }
 
+export interface Settings {
+  CAPITAL: number;
+  RISK_PCT: number;
+  MAX_POSITION_PCT: number;
+  MAX_TOTAL_DEPLOYED_PCT: number;
+  MAX_OPEN_POSITIONS: number;
+}
+
 export const api = {
   meta: () => get<Meta>("/meta"),
+  settings: () => get<Settings>("/settings"),
+  saveSettings: async (body: Partial<Settings>): Promise<Settings> => {
+    const res = await fetch(`${BASE}/settings`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(`/settings → ${res.status}`);
+    return res.json();
+  },
   regime: () => get<Regime>("/regime"),
   sectors: () => get<Sector[]>("/sectors"),
   rrg: (tail = 8) => get<RRGSeries[]>(`/sectors/rrg?tail=${tail}`),

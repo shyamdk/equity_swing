@@ -21,6 +21,7 @@ from backend.services.exits import evaluate_exit
 from backend.services.regime import get_regime
 from backend.services.sector import latest_ranking
 from backend.services.sizing import size_position
+from backend.settings import get_settings, reset_settings, save_settings
 
 app = FastAPI(
     title="Equity Swing — Robust Swing v1",
@@ -236,6 +237,32 @@ class SizeRequest(BaseModel):
 def size(req: SizeRequest) -> dict:
     """Position sizing: qty = min(risk-based, per-position cap, cash available)."""
     return _clean(size_position(**req.model_dump()))
+
+
+class SettingsUpdate(BaseModel):
+    CAPITAL: float | None = None
+    RISK_PCT: float | None = None
+    MAX_POSITION_PCT: float | None = None
+    MAX_TOTAL_DEPLOYED_PCT: float | None = None
+    MAX_OPEN_POSITIONS: int | None = None
+
+
+@app.get("/settings", tags=["Q4 · sizing"])
+def settings_get() -> dict:
+    """Persisted portfolio settings (capital, risk %, caps)."""
+    return _clean(get_settings())
+
+
+@app.put("/settings", tags=["Q4 · sizing"])
+def settings_put(req: SettingsUpdate) -> dict:
+    """Save portfolio settings. Stored server-side so Q4 and Q5 agree on capital."""
+    return _clean(save_settings(req.model_dump(exclude_none=True)))
+
+
+@app.post("/settings/reset", tags=["Q4 · sizing"])
+def settings_reset() -> dict:
+    """Drop overrides, fall back to the strategy defaults."""
+    return _clean(reset_settings())
 
 
 # ---------------------------------------------------------------------------

@@ -10,13 +10,48 @@ function SizingInner() {
   const [entry, setEntry] = useState(qs.get("entry") ?? "500");
   const [atr, setAtr] = useState(qs.get("atr") ?? "10");
   const [swingLow, setSwingLow] = useState("");
-  const [capital, setCapital] = useState("100000");
-  const [riskPct, setRiskPct] = useState("1");
+  const [capital, setCapital] = useState("");
+  const [riskPct, setRiskPct] = useState("");
   const [deployed, setDeployed] = useState("0");
   const [openPos, setOpenPos] = useState("0");
   const [out, setOut] = useState<Sizing | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [saved, setSaved] = useState<"idle" | "saving" | "saved">("idle");
+  const [loaded, setLoaded] = useState(false);
   const symbol = qs.get("symbol");
+
+  // Capital and risk% are PERSISTED settings, not scratch inputs — load them.
+  useEffect(() => {
+    api
+      .settings()
+      .then((s) => {
+        setCapital(String(s.CAPITAL));
+        setRiskPct(String(s.RISK_PCT));
+      })
+      .catch(() => {
+        setCapital("100000");
+        setRiskPct("1");
+      })
+      .finally(() => setLoaded(true));
+  }, []);
+
+  // Auto-save them (debounced). Stored server-side so Q5's exit maths uses the
+  // same capital — a browser-only value would silently disagree.
+  useEffect(() => {
+    if (!loaded || !capital || !riskPct) return;
+    const c = parseFloat(capital);
+    const r = parseFloat(riskPct);
+    if (!c || !r) return;
+
+    setSaved("saving");
+    const t = setTimeout(() => {
+      api
+        .saveSettings({ CAPITAL: c, RISK_PCT: r })
+        .then(() => setSaved("saved"))
+        .catch(() => setSaved("idle"));
+    }, 600);
+    return () => clearTimeout(t);
+  }, [capital, riskPct, loaded]);
 
   useEffect(() => {
     const e = parseFloat(entry);
@@ -68,15 +103,41 @@ function SizingInner() {
 
       <div className="grid gap-4 lg:grid-cols-5">
         <Card className="lg:col-span-2">
-          <SectionTitle>Inputs</SectionTitle>
+          <SectionTitle hint="Entry/ATR are per-trade. Capital and Risk % are saved.">
+            Inputs
+          </SectionTitle>
           <div className="grid grid-cols-2 gap-3">
             <Field label="Entry (₹)" value={entry} onChange={setEntry} />
             <Field label="ATR(14)" value={atr} onChange={setAtr} />
-            <Field label="Swing low (₹)" value={swingLow} onChange={setSwingLow} placeholder="optional" />
-            <Field label="Capital (₹)" value={capital} onChange={setCapital} />
-            <Field label="Risk %" value={riskPct} onChange={setRiskPct} />
+            <Field
+              label="Swing low (₹)"
+              value={swingLow}
+              onChange={setSwingLow}
+              placeholder="optional"
+            />
             <Field label="Already deployed (₹)" value={deployed} onChange={setDeployed} />
             <Field label="Open positions" value={openPos} onChange={setOpenPos} />
+          </div>
+
+          {/* Saved settings, visually separated from the per-trade inputs. */}
+          <div className="mt-4 rounded-lg border border-hairline bg-page p-3">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-medium text-ink-2">Portfolio settings</span>
+              <span className="text-xs text-ink-muted">
+                {saved === "saving" && "Saving…"}
+                {saved === "saved" && (
+                  <span style={{ color: "var(--good)" }}>✓ Saved</span>
+                )}
+              </span>
+            </div>
+            <div className="mt-2 grid grid-cols-2 gap-3">
+              <Field label="Capital (₹)" value={capital} onChange={setCapital} />
+              <Field label="Risk %" value={riskPct} onChange={setRiskPct} />
+            </div>
+            <p className="mt-2 text-xs text-ink-muted">
+              Saved automatically to the database — they persist across reloads, and Q5 uses the
+              same capital to compute R-multiples.
+            </p>
           </div>
         </Card>
 
