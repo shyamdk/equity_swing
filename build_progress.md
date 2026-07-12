@@ -272,9 +272,16 @@ Each emits a **pass/fail checklist** persisted to `signals.details` (JSONB) for 
 These are the items only you can do (accounts, credentials, decisions). Ordered by
 priority. Check them off as you go.
 
-### 🔴 T1 — Rotate the leaked Angel One credentials  *(security-critical, blocks live data)*
-The old key/PIN/TOTP were exposed in git history (§8) **and** the historical API now
-rejects the old key. Do a full rotation:
+> **Diagnosis update (2026-07-12):** a connection test proved the credentials are FINE —
+> `generateSession` **and** `getProfile` both return SUCCESS (real account, exchanges
+> enabled). Only `getCandleData` fails with `Invalid API Key (AG8004)`. So **rotation is
+> NOT what's blocking live data** — see **T2**, which is the real blocker. T1 remains a
+> security recommendation (the user has accepted the risk for now: repo is private and
+> not shared).
+
+### 🟡 T1 — Rotate the leaked Angel One credentials  *(security hygiene — user has deferred)*
+The old key/PIN/TOTP were exposed in git history (§8). Not currently blocking anything.
+If/when you choose to rotate:
 
 1. **API key** — log in to <https://smartapi.angelbroking.com/> (developer portal) →
    **My Apps**. Delete the app whose key is `FOYSHNRk`, then **Create App**.
@@ -293,13 +300,31 @@ rejects the old key. Do a full rotation:
    # expect: "5min/1day … rows" written, NOT "Invalid API Key"
    ```
 
-### 🔴 T2 — Confirm Historical Data API entitlement
-Login succeeds but `getCandleData` fails, which usually means the app key lacks historical
-access. When creating the app in T1:
-- Ensure the app is enabled for **Historical Data** (SmartAPI historical/candle endpoint).
-- If the portal separates "Trading" vs "Historical Data" / "Market Feed" apps, use the key
-  from the one with historical enabled.
-- Sanity check after rotation: the RELIANCE command in T1.4 should return candles.
+### 🔴 T2 — Get a Historical-Data-enabled API key  *(THE blocker for live data)*
+**Confirmed by test:** login + `getProfile` succeed, but `getCandleData` returns
+`Invalid API Key (AG8004)`. On SmartAPI, apps are created **per API type** (Trading /
+Market Feeds / **Historical Data** / Publisher), each with its **own key** — and keys
+**expire**. A trading-type key authenticates and returns your profile but is rejected by
+the historical endpoint. (This setup ingested fine until 2026-03-23, so the app has most
+likely expired or is the wrong type.)
+
+Steps:
+1. Go to <https://smartapi.angelbroking.com/> → **My Apps**.
+2. Inspect the app behind key `FOYSHNRk`:
+   - **Expired / inactive** → renew or reactivate it.
+   - **Trading-only type** → create a new app of type **Historical Data** (or enable
+     historical on the existing one) and copy that key.
+3. Put the historical-enabled key in `.env` as `ANGEL_API_KEY`.
+4. Verify:
+   ```bash
+   source venv/bin/activate
+   python -m backend.cli ingest-symbols RELIANCE
+   # expect rows written, NOT "Invalid API Key"
+   ```
+
+> If Angel issues a **separate** key for historical data (different from your trading key),
+> tell me — I'll add an optional `ANGEL_HISTORICAL_API_KEY` to config so the ingestor uses
+> the right key for candle calls.
 
 ### 🔴 T3 — Update `.env` with the new secrets
 Edit `/Users/shyamdk/Developer/equity_swing/.env` (this file is gitignored — safe):
