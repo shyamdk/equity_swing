@@ -2,6 +2,7 @@
 
 import CandleChart from "@/components/CandleChart";
 import Legend, { Q2_TERMS } from "@/components/Legend";
+import Link from "next/link";
 import { api, BaseRow } from "@/lib/api";
 import {
   Card,
@@ -51,6 +52,24 @@ export default function WatchlistPage() {
           stock that fell, went quiet sideways in a tight range, with volume drying up. These are
           candidates — <em>not</em> buys. Q3 decides when they actually wake up.
         </p>
+      </div>
+
+      {/* The single most dangerous misreading of this screen. Say it up front. */}
+      <div
+        className="rounded-xl border-l-4 border border-hairline bg-surface px-4 py-3 text-sm"
+        style={{ borderLeftColor: "var(--weakening)" }}
+      >
+        <strong className="text-ink">Nothing on this page is a buy.</strong>{" "}
+        <span className="text-ink-2">
+          These are <em>candidates</em>. A positive “to lid” means the price still has to{" "}
+          <strong className="text-ink">rise</strong> that much to reach its breakout level — it has{" "}
+          <strong className="text-ink">not</strong> broken out. Entry only happens in{" "}
+          <Link href="/entries" className="underline">
+            Q3
+          </Link>
+          , which additionally requires volume ≥1.5×, RSI above 50 and rising, and the weekly chart
+          to agree.
+        </span>
       </div>
 
       <Legend terms={Q2_TERMS} />
@@ -137,9 +156,8 @@ export default function WatchlistPage() {
               <div className="mt-3 grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
                 <Metric
                   label="To lid"
-                  value={`${toLid(r) <= 0 ? "at/above" : "+" + toLid(r).toFixed(1) + "%"}`}
-                  good={toLid(r) <= 3}
-                  hint={`How far the price must still rise to clear the lid (₹${r.base_high}) and trigger a Q3 breakout. This — not the sector badge — is what "close to breaking out" means.`}
+                  value={toLid(r) <= 0 ? "at lid" : `${toLid(r).toFixed(1)}% to go`}
+                  hint={`Distance the price must still RISE to reach the lid (₹${r.base_high}). A positive number means it has NOT broken out — this is not an entry, it's a "watch closely". Entry only happens in Q3, which also needs volume ≥1.5×, RSI>50 and rising, and the weekly chart to agree.`}
                 />
                 <Metric
                   label="Turnover"

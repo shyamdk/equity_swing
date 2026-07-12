@@ -39,10 +39,10 @@ export interface Term {
 /** Q2 metric glossary. Every number on a card is defined here in plain English. */
 export const Q2_TERMS: Term[] = [
   {
-    term: "To lid  ← this is “how close to a breakout”",
+    term: "To lid  ← distance still to travel, NOT a green light",
     plain:
-      "How far the price must still rise to clear the lid and trigger Q3. '+4.2%' means it needs a 4.2% move; 'at/above' means it's already there.",
-    rule: "Careful: the sector badge (Leading/Lagging) does NOT mean this. Leading describes the SECTOR's strength — every stock in that sector shares the badge. A stock in a leading sector can be miles from its lid, and one in a lagging sector can be sitting right on it. Leading means 'if it breaks out, the wind is behind it' — not 'it is about to break out'.",
+      "How far the price must still RISE to reach the lid. '4.2% to go' means it needs a 4.2% move up — i.e. it has NOT broken out. Smaller = closer to a trigger, so worth watching; it is never an instruction to buy.",
+    rule: "Entry happens only in Q3, which also needs volume ≥1.5×, RSI>50 and rising, and the weekly chart to agree. Separately: the sector badge (Leading/Lagging) is about the SECTOR, not this stock — a leading-sector stock can be miles from its lid, and a lagging-sector one can sit right on it. Leading means 'if it breaks out, the wind is behind it', not 'it's about to break out'.",
   },
   {
     term: "Range (e.g. 7.5%)",
