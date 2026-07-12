@@ -1,7 +1,7 @@
 "use client";
 
 import { api, Sizing } from "@/lib/api";
-import { Card, ErrorBox, SectionTitle, StatTile } from "@/components/ui";
+import { Card, SectionTitle, StatTile } from "@/components/ui";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 
@@ -21,22 +21,38 @@ function SizingInner() {
   useEffect(() => {
     const e = parseFloat(entry);
     const a = parseFloat(atr);
-    if (!e || !a) return;
-    api
-      .size({
-        entry: e,
-        atr: a,
-        swing_low: swingLow ? parseFloat(swingLow) : null,
-        capital: capital ? parseFloat(capital) : null,
-        risk_pct: riskPct ? parseFloat(riskPct) : null,
-        deployed_value: parseFloat(deployed) || 0,
-        open_positions: parseInt(openPos) || 0,
-      })
-      .then(setOut)
-      .catch((x) => setErr(String(x)));
-  }, [entry, atr, swingLow, capital, riskPct, deployed, openPos]);
+    if (!e || !a) {
+      setOut(null);
+      return;
+    }
 
-  if (err) return <ErrorBox error={err} />;
+    // Debounce: this fires on every keystroke, and a burst of in-flight POSTs can
+    // resolve out of order and paint a stale result. `stale` also guards that.
+    let stale = false;
+    const t = setTimeout(() => {
+      api
+        .size({
+          entry: e,
+          atr: a,
+          swing_low: swingLow ? parseFloat(swingLow) : null,
+          capital: capital ? parseFloat(capital) : null,
+          risk_pct: riskPct ? parseFloat(riskPct) : null,
+          deployed_value: parseFloat(deployed) || 0,
+          open_positions: parseInt(openPos) || 0,
+        })
+        .then((r) => {
+          if (stale) return;
+          setOut(r);
+          setErr(null); // recover: a good response clears a previous failure
+        })
+        .catch((x) => !stale && setErr(String(x)));
+    }, 250);
+
+    return () => {
+      stale = true;
+      clearTimeout(t);
+    };
+  }, [entry, atr, swingLow, capital, riskPct, deployed, openPos]);
 
   return (
     <div className="space-y-6">
@@ -65,6 +81,18 @@ function SizingInner() {
         </Card>
 
         <div className="space-y-4 lg:col-span-3">
+          {err && (
+            <Card>
+              <div className="text-sm font-semibold text-ink">Couldn&apos;t reach the backend</div>
+              <p className="mt-1 text-sm text-ink-2">{err}</p>
+              <p className="mt-1 text-sm text-ink-muted">
+                Start it with{" "}
+                <code>uvicorn backend.api.main:app --reload --port 8001</code>. Edit any field and
+                this will retry automatically.
+              </p>
+            </Card>
+          )}
+
           {out && (
             <>
               <div className="grid grid-cols-2 gap-3 sm:gap-4">
