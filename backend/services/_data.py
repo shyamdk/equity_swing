@@ -70,12 +70,18 @@ def sector_snapshot(asof: str | None = None) -> pd.DataFrame:
 
 
 def trading_days(start: str, end: str) -> list[str]:
-    """Dates on which the benchmark actually traded — the replay clock."""
+    """Dates the regime benchmark actually traded — the replay clock.
+
+    Must follow REGIME_BENCHMARK: the old synthetic NIFTY500EW only spans 2024-2026, so
+    keying the calendar off it would silently truncate a deep-history replay.
+    """
+    from backend import strategy_config as C
+
     df = read_sql(
         "SELECT DISTINCT (ts AT TIME ZONE 'Asia/Kolkata')::date AS d FROM ohlcv "
-        "WHERE interval = '1day' AND symbol = 'NIFTY500EW' "
+        "WHERE interval = '1day' AND symbol = :bm "
         "AND (ts AT TIME ZONE 'Asia/Kolkata')::date BETWEEN :s AND :e ORDER BY d",
-        {"s": start, "e": end},
+        {"bm": C.REGIME_BENCHMARK, "s": start, "e": end},
     )
     return [str(d) for d in df["d"].tolist()]
 

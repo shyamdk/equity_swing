@@ -183,20 +183,29 @@ def _update_trade(u: dict) -> None:
 # Q1→Q4 — take entries
 # ---------------------------------------------------------------------------
 
-def take_entries(asof: str, run_tag: str = "live") -> list[dict]:
+def take_entries(asof: str, run_tag: str = "live", strategy: str = "robust") -> list[dict]:
+    """Take entries for `asof`. `strategy` swaps ONLY the entry signal — exits, sizing,
+    the regime gate and the fills are identical, so a control run is a fair comparison."""
     regime = get_regime(asof=asof)
     if not regime.get("healthy"):
         return []                       # 🔴 no new buys, full stop
 
-    wl = q2.scan(only_passed=True, asof=asof)
-    if wl.empty:
-        return []
-    breakouts = q3.scan(symbols=wl["symbol"].tolist(), only_passed=True, asof=asof)
-    if breakouts.empty:
-        return []
+    if strategy == "robust":
+        wl = q2.scan(only_passed=True, asof=asof)
+        if wl.empty:
+            return []
+        breakouts = q3.scan(symbols=wl["symbol"].tolist(), only_passed=True, asof=asof)
+        wl_by = wl.set_index("symbol").to_dict("index")
+    else:
+        from backend.services.control import SIGNALS
 
-    # base_low / base_high live on the Q2 row — needed for the stop.
-    wl_by = wl.set_index("symbol").to_dict("index")
+        if strategy not in SIGNALS:
+            raise ValueError(f"unknown strategy {strategy!r}")
+        breakouts = SIGNALS[strategy](asof=asof)
+        wl_by = breakouts.set_index("symbol").to_dict("index") if not breakouts.empty else {}
+
+    if breakouts is None or breakouts.empty:
+        return []
 
     cfg = get_settings()
     opened: list[dict] = []
@@ -329,7 +338,7 @@ def _insert_trade(e, sizing: dict, context: dict, cfg: dict, asof: str, run_tag:
 # cycles
 # ---------------------------------------------------------------------------
 
-def run_cycle(asof: str | None = None, run_tag: str = "live") -> dict:
+def run_cycle(asof: str | None = None, run_tag: str = "live", strategy: str = "robust") -> dict:
     """One trading day: manage exits, then take entries."""
     if asof is None:
         asof = str(read_sql(
@@ -338,33 +347,41 @@ def run_cycle(asof: str | None = None, run_tag: str = "live") -> dict:
         )["d"].iloc[0])
 
     exits = manage_exits(asof, run_tag)
-    entries = take_entries(asof, run_tag)
+    entries = take_entries(asof, run_tag, strategy=strategy)
     return {"asof": asof, "exits": exits, "entries": entries}
 
 
-def replay(start: str, end: str, reset: bool = True) -> dict:
-    """Re-run the whole funnel day by day over history to build a track record.
+def replay(
+    start: str,
+    end: str,
+    reset: bool = True,
+    strategy: str = "robust",
+    run_tag: str = "replay",
+) -> dict:
+    """Re-run the funnel day by day over history to build a track record.
 
     Every scan is `asof`-bounded, so no future data can leak into a decision.
+    `strategy` swaps only the entry signal — see services/control.py for the controls.
     """
     from backend.services._data import trading_days
 
     if reset:
         with get_engine().begin() as conn:
-            conn.execute(text("DELETE FROM paper_trades WHERE run_tag = 'replay'"))
+            conn.execute(text("DELETE FROM paper_trades WHERE run_tag = :t"), {"t": run_tag})
 
     days = trading_days(start, end)
-    logger.info(f"Replaying {len(days)} trading days ({start} → {end})…")
+    logger.info(f"Replaying [{strategy}] {len(days)} trading days ({start} → {end})…")
 
     n_entries = n_exits = 0
     for i, d in enumerate(days, 1):
-        out = run_cycle(asof=d, run_tag="replay")
+        out = run_cycle(asof=d, run_tag=run_tag, strategy=strategy)
         n_entries += len(out["entries"])
         n_exits += len([e for e in out["exits"] if e["action"] == "exit"])
-        if i % 25 == 0 or i == len(days):
+        if i % 100 == 0 or i == len(days):
             logger.info(f"  [{i}/{len(days)}] {d} — {n_entries} entries, {n_exits} exits")
 
-    return {"days": len(days), "entries": n_entries, "exits": n_exits, **stats("replay")}
+    return {"strategy": strategy, "days": len(days), "entries": n_entries,
+            "exits": n_exits, **stats(run_tag)}
 
 
 # ---------------------------------------------------------------------------
