@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import DataStatus from "@/components/DataStatus";
 import Nav from "@/components/Nav";
 import "./globals.css";
 
@@ -16,7 +17,10 @@ export default function RootLayout({
         <div className="flex flex-col md:flex-row">
           <Nav />
           <main className="min-w-0 flex-1 px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
-            <div className="mx-auto max-w-6xl">{children}</div>
+            <div className="mx-auto max-w-6xl">
+              <DataStatus />
+              {children}
+            </div>
           </main>
         </div>
       </body>

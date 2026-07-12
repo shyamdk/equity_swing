@@ -15,7 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from backend import strategy_config as C
-from backend.db import read_sql, ping
+from backend.db import ping, read_sql, scalar
 from backend.services import base as q2, entry as q3
 from backend.services.exits import evaluate_exit
 from backend.services.regime import get_regime
@@ -79,6 +79,70 @@ def health() -> dict:
 def config() -> dict:
     """All strategy knobs (Part 14) — so the UI can display/explain the rules."""
     return _clean(C.as_dict())
+
+
+@app.get("/meta", tags=["meta"])
+def meta() -> dict:
+    """Universe + data freshness.
+
+    Nothing here auto-refreshes: candles land when the ingest is run, and the sector
+    metrics are a STORED snapshot that must be rebuilt afterwards — so it can silently
+    lag the candles. We surface both dates and flag the gap rather than hide it.
+    """
+    universe_n = scalar("SELECT count(*) FROM symbols WHERE is_index = FALSE") or 0
+
+    candles = read_sql(
+        "SELECT interval, count(DISTINCT symbol) AS symbols, "
+        "max(ts AT TIME ZONE :tz)::date AS latest "
+        "FROM ohlcv GROUP BY interval ORDER BY interval",
+        {"tz": "Asia/Kolkata"},
+    )
+    latest_daily = scalar(
+        "SELECT max(ts AT TIME ZONE 'Asia/Kolkata')::date FROM ohlcv WHERE interval='1day'"
+    )
+    last_run = scalar("SELECT max(updated_at) FROM ingestion_state")
+    sectors_asof = scalar("SELECT max(ts) FROM sector_metrics")
+    bench_asof = scalar(
+        "SELECT max(ts AT TIME ZONE 'Asia/Kolkata')::date FROM ohlcv "
+        "WHERE symbol = 'NIFTY500EW' AND interval = '1day'"
+    )
+
+    # Business days between the newest candle and today.
+    stale_days = None
+    if latest_daily:
+        stale_days = int(
+            pd.bdate_range(pd.Timestamp(latest_daily), pd.Timestamp.now().normalize()).size - 1
+        )
+
+    # Sector snapshot older than the candles → the RRG is showing stale rotation.
+    sector_lag = None
+    if sectors_asof and latest_daily:
+        sector_lag = (pd.Timestamp(latest_daily) - pd.Timestamp(sectors_asof)).days
+
+    return _clean({
+        "universe": {
+            "name": "Nifty 500",
+            "symbols": int(universe_n),
+            "source": "ind_nifty500list.csv",
+            "note": "Other index lists (Nifty 50/100/Midcap…) are tags, not separate universes.",
+        },
+        "data_asof": latest_daily,
+        "stale_business_days": stale_days,
+        "last_ingest_run": last_run,
+        "sectors_asof": sectors_asof,
+        "sector_lag_days": sector_lag,
+        "benchmark_asof": bench_asof,
+        "refresh": {
+            "mode": "manual",
+            "note": "Nothing is scheduled — data changes only when you run these.",
+            "steps": [
+                "python -m backend.cli ingest",
+                "python -c 'from backend.services.benchmark import build_benchmark; build_benchmark()'",
+                "python -c 'from backend.services.sector import build_sector_metrics; build_sector_metrics()'",
+            ],
+        },
+        "intervals": _records(candles),
+    })
 
 
 @app.get("/symbols", tags=["meta"])

@@ -87,6 +87,18 @@ export interface Candles {
   indicators: Record<string, { time: string; value: number }[]>;
 }
 
+export interface Meta {
+  universe: { name: string; symbols: number; source: string; note: string };
+  data_asof: string | null;
+  stale_business_days: number | null;
+  last_ingest_run: string | null;
+  sectors_asof: string | null;
+  sector_lag_days: number | null;
+  benchmark_asof: string | null;
+  refresh: { mode: string; note: string; steps: string[] };
+  intervals: { interval: string; symbols: number; latest: string }[];
+}
+
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(`${BASE}${path}`, { cache: "no-store" });
   if (!res.ok) throw new Error(`${path} → ${res.status}`);
@@ -94,6 +106,7 @@ async function get<T>(path: string): Promise<T> {
 }
 
 export const api = {
+  meta: () => get<Meta>("/meta"),
   regime: () => get<Regime>("/regime"),
   sectors: () => get<Sector[]>("/sectors"),
   rrg: (tail = 8) => get<RRGSeries[]>(`/sectors/rrg?tail=${tail}`),
