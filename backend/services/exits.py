@@ -54,14 +54,16 @@ def evaluate_exit(
 
     # 3. Book half at +2R
     book_fraction = 0.0
-    if not partial_booked and r_multiple >= C.PARTIAL_R:
+    if not partial_booked and C.PARTIAL_FRACTION > 0 and r_multiple >= C.PARTIAL_R:
         book_fraction = C.PARTIAL_FRACTION
         partial_booked = True
         actions.append(f"book {C.PARTIAL_FRACTION:.0%} at +{C.PARTIAL_R:g}R")
 
-    # 4. Chandelier trail — only ratchets UP, never down
+    # 4. Chandelier trail — only ratchets UP, never down.
+    # Engages once the trade has made TRAIL_FROM_R (not necessarily after a partial), so
+    # the stop isn't left parked at breakeven while the trade is trying to run.
     chandelier = high_water - C.CHANDELIER_MULT * atr
-    if partial_booked and chandelier > new_stop:
+    if (partial_booked or r_multiple >= C.TRAIL_FROM_R) and chandelier > new_stop:
         new_stop = chandelier
         actions.append("chandelier trail raised")
 

@@ -401,6 +401,82 @@ def run_selective(
     _run_parallel(symbols, pool, dry_run, progress_callback, "Selective ingestion")
 
 
+def backfill_daily_history(
+    years: int = 15,
+    symbols: list[str] | None = None,
+    include_indices: bool = True,
+    progress_callback: Callable[[int, int, str], None] | None = None,
+) -> dict:
+    """Deep-history backfill of DAILY (+ derived WEEKLY) candles.
+
+    The default ingest only keeps ~2 years, which yields ~46 replayed trades — far too
+    few to tell an edge from noise. Angel serves ~15 years of daily data, which gets us
+    to a few hundred trades and allows a real out-of-sample split.
+
+    Intraday is deliberately skipped: 15 years of 5-min bars is enormous and the funnel
+    never reads it.
+
+    NOTE: the universe is TODAY's Nifty 500, so a deep replay carries survivorship bias
+    — it flatters the strategy. Read results accordingly.
+    """
+    from backend.services._data import universe
+
+    syms = symbols or universe()
+    idx = ["NIFTY50", "NIFTY500"] if include_indices else []
+
+    primary = AngelClient()
+    primary.login()
+    primary.load_instrument_master()
+    index_tokens = {"NIFTY50": "99926000", "NIFTY500": "99926004"}
+
+    to_date = datetime.now()
+    from_date = to_date - timedelta(days=365 * years + 30)
+    total = len(syms) + len(idx)
+    written = 0
+    failed: list[str] = []
+
+    logger.info(f"Backfilling {years}y of daily history for {total} symbols…")
+
+    for i, sym in enumerate(syms + idx, 1):
+        if progress_callback:
+            progress_callback(i, total, sym)
+        try:
+            if sym in index_tokens:
+                primary._token_map = {**(primary._token_map or {}), sym: index_tokens[sym]}
+            df = primary.get_candles_chunked(sym, "ONE_DAY", from_date, to_date, chunk_days=1500)
+            if df.empty:
+                failed.append(sym)
+                continue
+
+            # Indicators over the FULL series — never on a chunk (see INDICATOR_WARMUP).
+            df = calculate_indicators(df.copy(), is_intraday=False)
+            written += upsert_ohlcv("1day", df)
+            set_last_ingested_at(
+                sym, "1day",
+                pd.Timestamp(df["timestamp"].max()).strftime("%Y-%m-%dT%H:%M:%S"),
+            )
+
+            # Weekly, resampled from the full daily series.
+            dfw = _resample_daily_to_weekly(df[["symbol", "timestamp", "open", "high",
+                                                "low", "close", "volume"]].copy())
+            if not dfw.empty:
+                dfw = calculate_indicators(dfw, is_intraday=False)
+                written += upsert_ohlcv("1week", dfw)
+                set_last_ingested_at(
+                    sym, "1week",
+                    pd.Timestamp(dfw["timestamp"].max()).strftime("%Y-%m-%dT%H:%M:%S"),
+                )
+
+            if i % 25 == 0:
+                logger.info(f"  [{i}/{total}] {sym} — {written:,} rows so far")
+        except Exception as e:
+            logger.error(f"{sym}: {e}")
+            failed.append(sym)
+
+    logger.success(f"Backfill complete — {written:,} rows, {len(failed)} failures.")
+    return {"symbols": total, "rows": written, "failed": failed[:20]}
+
+
 def recompute_indicators(
     intervals: tuple[str, ...] = ("1day", "1week"),
     symbols: list[str] | None = None,

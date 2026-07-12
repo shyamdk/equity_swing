@@ -72,10 +72,15 @@ MAX_OPEN_POSITIONS = _i("MAX_OPEN_POSITIONS", 6)
 MAX_TOTAL_DEPLOYED_PCT = _f("MAX_TOTAL_DEPLOYED_PCT", 90.0)
 
 # --- Q5: the exit ladder ------------------------------------------------------
-BREAKEVEN_R = _f("BREAKEVEN_R", 1.0)              # move stop to entry at +1R
+BREAKEVEN_R = _f("BREAKEVEN_R", 1.0)              # move stop to entry at +1R (999 = off)
 PARTIAL_R = _f("PARTIAL_R", 2.0)                  # book half at +2R
-PARTIAL_FRACTION = _f("PARTIAL_FRACTION", 0.5)
+PARTIAL_FRACTION = _f("PARTIAL_FRACTION", 0.5)    # 0 = never book a partial
 CHANDELIER_MULT = _f("CHANDELIER_MULT", 3.0)      # trail = highest high - N x ATR
+# At what R does the Chandelier trail start? The doc only trails AFTER the +2R partial,
+# which leaves the stop parked at breakeven for the whole +1R→+2R stretch — so a normal
+# pullback scratches the trade at 0R before it can ever become a big winner. Lowering
+# this lets the trail take over earlier. Default = PARTIAL_R (the doc's behaviour).
+TRAIL_FROM_R = _f("TRAIL_FROM_R", 2.0)
 TIME_STOP_DAYS = _i("TIME_STOP_DAYS", 15)         # exit if flat after N trading days
 TIME_STOP_MIN_GAIN_PCT = _f("TIME_STOP_MIN_GAIN_PCT", 5.0)
 # Optional extra condition: also spare a trade from the time stop if it has made this

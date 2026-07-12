@@ -29,6 +29,12 @@ def main() -> None:
     p_sel = sub.add_parser("ingest-symbols", help="Ingest a specific list of symbols")
     p_sel.add_argument("symbols", nargs="+")
 
+    p_bf = sub.add_parser(
+        "backfill-history",
+        help="Deep-history daily+weekly backfill (default 15y) for a real backtest sample",
+    )
+    p_bf.add_argument("--years", type=int, default=15)
+
     p_rec = sub.add_parser(
         "recompute-indicators",
         help="Recompute indicators from stored OHLCV (no API); repairs NaN indicators",
@@ -63,6 +69,10 @@ def main() -> None:
     elif args.command == "ingest-symbols":
         from backend.data_ingestor import run_selective
         run_selective(args.symbols)
+
+    elif args.command == "backfill-history":
+        from backend.data_ingestor import backfill_daily_history
+        print(backfill_daily_history(years=args.years))
 
     elif args.command == "recompute-indicators":
         from backend.data_ingestor import recompute_indicators
