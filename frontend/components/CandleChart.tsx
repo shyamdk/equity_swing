@@ -23,6 +23,18 @@ export interface PriceLine {
   dashed?: boolean;
 }
 
+export interface Marker {
+  time: string;          // YYYY-MM-DD
+  kind: "entry" | "exit" | "partial";
+  text: string;
+}
+
+const MARKER_STYLE: Record<Marker["kind"], { color: string; pos: "aboveBar" | "belowBar"; shape: "arrowUp" | "arrowDown" | "circle" }> = {
+  entry: { color: "var(--good)", pos: "belowBar", shape: "arrowUp" },
+  exit: { color: "var(--critical)", pos: "aboveBar", shape: "arrowDown" },
+  partial: { color: "var(--improving)", pos: "aboveBar", shape: "circle" },
+};
+
 /**
  * Candlestick + volume + EMA overlays.
  * Up/down use the validated green/red pair (CVD ΔE 12.4 — passes, and matches the
@@ -37,6 +49,7 @@ export default function CandleChart({
   overlays = ["ema50"],
   priceLines = [],
   chartType = "candles",
+  markers = [],
 }: {
   symbol: string;
   interval?: string;
@@ -47,6 +60,8 @@ export default function CandleChart({
   /** Use "line" for synthetic indices, where open=high=low=close makes candles
    *  degenerate into specks. A single continuous value wants a line. */
   chartType?: "candles" | "line";
+  /** Entry / partial / exit arrows — where the trade actually happened. */
+  markers?: Marker[];
 }) {
   const box = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -136,6 +151,22 @@ export default function CandleChart({
       line.setData(pts.map((p) => ({ time: p.time as Time, value: p.value })));
     });
 
+    if (markers.length) {
+      createSeriesMarkers(
+        price,
+        markers
+          .slice()
+          .sort((a, b) => a.time.localeCompare(b.time))
+          .map((m) => ({
+            time: m.time as Time,
+            position: MARKER_STYLE[m.kind].pos,
+            color: cssVar(MARKER_STYLE[m.kind].color.replace(/var\(|\)/g, "")),
+            shape: MARKER_STYLE[m.kind].shape,
+            text: m.text,
+          }))
+      );
+    }
+
     priceLines.forEach((pl) =>
       price.createPriceLine({
         price: pl.price,
@@ -160,7 +191,7 @@ export default function CandleChart({
       chart.remove();
       chartRef.current = null;
     };
-  }, [data, height, interval, overlays, priceLines, chartType]);
+  }, [data, height, interval, overlays, priceLines, chartType, markers]);
 
   if (err) return <div className="p-4 text-sm text-ink-muted">Chart unavailable: {err}</div>;
   if (!data) return <div className="p-4 text-sm text-ink-muted">Loading chart…</div>;

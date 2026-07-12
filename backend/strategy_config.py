@@ -66,11 +66,18 @@ PARTIAL_FRACTION = _f("PARTIAL_FRACTION", 0.5)
 CHANDELIER_MULT = _f("CHANDELIER_MULT", 3.0)      # trail = highest high - N x ATR
 TIME_STOP_DAYS = _i("TIME_STOP_DAYS", 15)         # exit if flat after N trading days
 TIME_STOP_MIN_GAIN_PCT = _f("TIME_STOP_MIN_GAIN_PCT", 5.0)
-# "Dead money" must mean dead in R terms too, not just in %. A low-volatility stock can
-# sit at +1.2R while up only 4.8% — killing it there caps winners below the losers and
-# guarantees negative expectancy. A trade is only time-stopped if it has made NEITHER
-# % progress NOR R progress. Set to 0 to restore the doc's original %-only rule.
-TIME_STOP_MIN_R = _f("TIME_STOP_MIN_R", 0.5)
+# Optional extra condition: also spare a trade from the time stop if it has made this
+# much R progress. 999 = disabled, i.e. the doc's original %-only rule.
+#
+# We TESTED loosening this (replay, 2024-03 → 2026-07). It made things WORSE, not better:
+#   %-only (999, the doc)      exp -0.183R   win 41.7%  avgW 0.69R
+#   spare trades > +1.0R       exp -0.213R   win 41.7%  avgW 0.62R
+#   spare any profitable trade exp -0.290R   win 13.0%  avgW 1.51R
+#   no time stop at all        exp -0.456R   win 13.0%  avgW 1.51R
+# Letting winners run does grow the average winner (0.69R → 1.51R) but the win rate
+# collapses (42% → 13%) as those gains reverse into -1R stop-outs. The doc's rule wins.
+# Kept as a knob so the experiment is repeatable, NOT because it should be changed.
+TIME_STOP_MIN_R = _f("TIME_STOP_MIN_R", 999.0)
 
 
 def as_dict() -> dict:
