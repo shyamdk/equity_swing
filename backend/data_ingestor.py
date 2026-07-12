@@ -41,6 +41,10 @@ from backend.database import (
 from backend.db import read_sql
 from backend.indicators import calculate_indicators
 
+# Daily candles read to build weekly ones. Weekly RSI(14)/EMA(20,50)/BB(20) need many
+# weekly bars, so we resample from a long daily window (~1000 days ≈ 200 weeks).
+WEEKLY_RESAMPLE_DAILY_LOOKBACK = 1000
+
 
 # ---------------------------------------------------------------------------
 # Symbol loader
@@ -228,8 +232,10 @@ def ingest_symbol(symbol: str, client: AngelClient, dry_run: bool = False) -> di
     # Read the last 60 daily candles from DB (already includes the candles stored above).
     # Resampling from DB avoids an extra API call and guarantees correct full-week OHLCV
     # even on delta runs (INSERT OR REPLACE handles partial weeks automatically).
+    # Read a long daily window: weekly indicators (RSI14, EMA20/50, BB20) need many
+    # weekly candles, so 60 daily (~13 weeks) is far too few — they'd come out NULL.
     if not dry_run:
-        df_1d_db = get_latest_candles(symbol, "1day", n=60)
+        df_1d_db = get_latest_candles(symbol, "1day", n=WEEKLY_RESAMPLE_DAILY_LOOKBACK)
         if not df_1d_db.empty:
             df_1d_db["symbol"] = symbol
             df_1w = _resample_daily_to_weekly(df_1d_db)
@@ -393,7 +399,7 @@ def backfill_weekly(
         if progress_callback:
             progress_callback(idx, total, symbol)
         try:
-            df_1d = get_latest_candles(symbol, "1day", n=200)
+            df_1d = get_latest_candles(symbol, "1day", n=WEEKLY_RESAMPLE_DAILY_LOOKBACK)
             if df_1d.empty:
                 continue
             df_1d["symbol"] = symbol
