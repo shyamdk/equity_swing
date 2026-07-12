@@ -90,3 +90,16 @@ Volume filter
 5-day average volume ≥ 100,000
 Market cap filter
 Market capitalization ≥ ₹500 crore
+
+
+
+Now, i want to discuss the robust_swing_strategy before implementation, i have a couple of questions,
+1. How should select the stocks. I have the nifty500 list and many other lists in data folder
+1a. should we consider sector rotation? give preference to sectors are in season now.
+Do deep reasearch, we can add a section on it?
+2. from tech point of view, i would like to create responsive UI using Next.JS, backend 
+loosely coupled Fast API. Sqllite for database. 
+3. Keep everything that might be required for this implementation and move the rest to a old folder in the project
+4. Suggest implementation strategy. Should have separate pages for Q1 to Q5?
+5. I am a very visual person. where required use tradingview charing github lib for charting
+6. I shoould be able to easily understand, visutalize, reason each stage 

@@ -45,6 +45,14 @@ from backend.indicators import calculate_indicators
 # weekly bars, so we resample from a long daily window (~1000 days ≈ 200 weeks).
 WEEKLY_RESAMPLE_DAILY_LOOKBACK = 1000
 
+# Stored candles prepended to a delta batch before computing indicators.
+# Without this, indicators are computed on the delta chunk ALONE — RSI/ATR come out
+# NaN or seeded from the wrong starting point, and EMA200 is impossible. The strategy
+# reads RSI/ATR off the newest candle, so this must be a proper warm-up window.
+INDICATOR_WARMUP = {
+    "5min": 600, "75min": 400, "125min": 400, "1day": 400, "1week": 220,
+}
+
 
 # ---------------------------------------------------------------------------
 # Symbol loader
@@ -183,14 +191,30 @@ def _process_and_store(
     """Calculate indicators and upsert a DataFrame for one (symbol, interval)."""
     if df.empty:
         return
+    df = df.copy()
     df["symbol"] = symbol
-    df = calculate_indicators(df, is_intraday=is_intraday)
     df["timestamp"] = pd.to_datetime(df["timestamp"])   # naive IST; upsert localizes
-    count = upsert_ohlcv(interval, df)
+    newest_ts = df["timestamp"].max()
+
+    # Prepend stored history so indicators have a real warm-up window (see
+    # INDICATOR_WARMUP). Recomputing over the combined series also repairs any
+    # rows whose indicators were previously written NaN.
+    ohlcv_cols = ["symbol", "timestamp", "open", "high", "low", "close", "volume"]
+    hist = get_latest_candles(symbol, interval, n=INDICATOR_WARMUP.get(interval, 400))
+    if not hist.empty:
+        hist["timestamp"] = pd.to_datetime(hist["timestamp"])
+        combined = pd.concat([hist[ohlcv_cols], df[ohlcv_cols]], ignore_index=True)
+    else:
+        combined = df[ohlcv_cols]
+    combined = (combined.drop_duplicates(subset=["timestamp"], keep="last")
+                        .sort_values("timestamp").reset_index(drop=True))
+
+    combined = calculate_indicators(combined, is_intraday=is_intraday)
+    count = upsert_ohlcv(interval, combined)
     if count > 0:
-        latest = pd.Timestamp(df["timestamp"].max()).strftime("%Y-%m-%dT%H:%M:%S")
+        latest = pd.Timestamp(newest_ts).strftime("%Y-%m-%dT%H:%M:%S")
         set_last_ingested_at(symbol, interval, latest)
-        logger.debug(f"{symbol} [{interval}] → {count} rows, latest={latest}")
+        logger.debug(f"{symbol} [{interval}] → {len(df)} new / {count} written, latest={latest}")
 
 
 def ingest_symbol(symbol: str, client: AngelClient, dry_run: bool = False) -> dict:
@@ -375,6 +399,43 @@ def run_selective(
     workers = API_MAX_WORKERS
     pool    = _build_client_pool(workers)
     _run_parallel(symbols, pool, dry_run, progress_callback, "Selective ingestion")
+
+
+def recompute_indicators(
+    intervals: tuple[str, ...] = ("1day", "1week"),
+    symbols: list[str] | None = None,
+    progress_callback: Callable[[int, int, str], None] | None = None,
+) -> int:
+    """Recompute indicators from stored OHLCV — no API calls.
+
+    Repairs rows whose indicators were written NaN because they were computed on a
+    short delta chunk (see INDICATOR_WARMUP). Recomputes over each symbol's FULL
+    stored series, so RSI/ATR/EMA are correct and continuous.
+    """
+    written = 0
+    for interval in intervals:
+        syms = symbols or read_sql(
+            "SELECT DISTINCT symbol FROM ohlcv WHERE interval = :i ORDER BY symbol",
+            {"i": interval},
+        )["symbol"].tolist()
+
+        total = len(syms)
+        logger.info(f"Recomputing {interval} indicators for {total} symbols…")
+        for idx, symbol in enumerate(syms, 1):
+            if progress_callback:
+                progress_callback(idx, total, f"{symbol} [{interval}]")
+            try:
+                df = get_latest_candles(symbol, interval, n=5000)   # full stored series
+                if df.empty:
+                    continue
+                df = df[["symbol", "timestamp", "open", "high", "low", "close", "volume"]]
+                df = calculate_indicators(df, is_intraday=interval in INTRADAY_INTERVALS)
+                written += upsert_ohlcv(interval, df)
+            except Exception as e:
+                logger.error(f"Recompute failed for {symbol} [{interval}]: {e}")
+
+    logger.success(f"Indicator recompute complete — {written} rows rewritten.")
+    return written
 
 
 def backfill_weekly(

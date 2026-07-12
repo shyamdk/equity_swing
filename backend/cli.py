@@ -29,6 +29,12 @@ def main() -> None:
     p_sel = sub.add_parser("ingest-symbols", help="Ingest a specific list of symbols")
     p_sel.add_argument("symbols", nargs="+")
 
+    p_rec = sub.add_parser(
+        "recompute-indicators",
+        help="Recompute indicators from stored OHLCV (no API); repairs NaN indicators",
+    )
+    p_rec.add_argument("--intervals", nargs="+", default=["1day", "1week"])
+
     args = parser.parse_args()
 
     if args.command == "check":
@@ -57,6 +63,10 @@ def main() -> None:
     elif args.command == "ingest-symbols":
         from backend.data_ingestor import run_selective
         run_selective(args.symbols)
+
+    elif args.command == "recompute-indicators":
+        from backend.data_ingestor import recompute_indicators
+        recompute_indicators(intervals=tuple(args.intervals))
 
     else:
         parser.print_help()
