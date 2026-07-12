@@ -1,6 +1,7 @@
 "use client";
 
 import CandleChart from "@/components/CandleChart";
+import Legend, { Q3_TERMS } from "@/components/Legend";
 import { api, EntryRow } from "@/lib/api";
 import {
   Card,
@@ -40,6 +41,8 @@ export default function EntriesPage() {
           haven&apos;t already missed the move.
         </p>
       </div>
+
+      <Legend terms={Q3_TERMS} />
 
       {passed.length === 0 ? (
         <Empty>

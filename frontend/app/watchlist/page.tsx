@@ -1,6 +1,7 @@
 "use client";
 
 import CandleChart from "@/components/CandleChart";
+import Legend, { Q2_TERMS } from "@/components/Legend";
 import { api, BaseRow } from "@/lib/api";
 import {
   Card,
@@ -9,7 +10,6 @@ import {
   ErrorBox,
   Loading,
   QuadrantBadge,
-  SectionTitle,
   Verdict,
 } from "@/components/ui";
 import { useEffect, useState } from "react";
@@ -37,6 +37,8 @@ export default function WatchlistPage() {
           candidates — <em>not</em> buys. Q3 decides when they actually wake up.
         </p>
       </div>
+
+      <Legend terms={Q2_TERMS} />
 
       {/* filters sit in one row above the content */}
       <div className="flex flex-wrap items-center gap-3">
@@ -75,14 +77,31 @@ export default function WatchlistPage() {
                 </div>
                 <div className="tnum shrink-0 text-right">
                   <div className="font-semibold text-ink">₹{r.close.toLocaleString("en-IN")}</div>
-                  <div className="text-sm text-ink-muted">{r.base_range_pct.toFixed(1)}% range</div>
+                  <div
+                    className="text-sm text-ink-muted"
+                    title="20-day price range (high−low ÷ low). Under 20% = a tight, coiled base."
+                  >
+                    {r.base_range_pct.toFixed(1)}% range
+                  </div>
                 </div>
               </div>
 
               <div className="mt-3 grid grid-cols-3 gap-2 text-sm">
-                <Metric label="Turnover" value={`₹${r.turnover_cr.toFixed(1)} Cr`} />
-                <Metric label="RSI mean" value={r.rsi_mean_25.toFixed(1)} />
-                <Metric label="ATR" value={r.atr ? r.atr.toFixed(2) : "—"} />
+                <Metric
+                  label="Turnover"
+                  value={`₹${r.turnover_cr.toFixed(1)} Cr`}
+                  hint="Avg daily traded value over 20 days. Need ≥ ₹5 Cr so you can get in and out easily."
+                />
+                <Metric
+                  label="RSI mean"
+                  value={r.rsi_mean_25.toFixed(1)}
+                  hint="Avg 25-day momentum (0–100). Want 35–48: cooled off, sellers exhausted — not dead."
+                />
+                <Metric
+                  label="ATR"
+                  value={r.atr ? r.atr.toFixed(2) : "—"}
+                  hint="Avg daily move in ₹ ('bounciness'). Sets the stop (2×ATR) and so the position size."
+                />
               </div>
 
               <div className="mt-4">
@@ -121,10 +140,13 @@ export default function WatchlistPage() {
   );
 }
 
-function Metric({ label, value }: { label: string; value: string }) {
+function Metric({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
-    <div className="rounded-lg bg-page px-2.5 py-2">
-      <div className="text-xs text-ink-muted">{label}</div>
+    <div className="rounded-lg bg-page px-2.5 py-2" title={hint}>
+      <div className="flex items-center gap-1 text-xs text-ink-muted">
+        {label}
+        {hint && <span aria-hidden>ⓘ</span>}
+      </div>
       <div className="tnum mt-0.5 font-medium text-ink">{value}</div>
     </div>
   );
