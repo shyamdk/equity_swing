@@ -49,8 +49,15 @@ NO_CHASE_PCT = _f("NO_CHASE_PCT", 8.0)            # skip if >N% past breakout le
 CAPITAL = _f("CAPITAL", 100_000.0)                # ₹
 RISK_PCT = _f("RISK_PCT", 1.0)                    # % of capital risked per trade
 ATR_STOP_MULT = _f("ATR_STOP_MULT", 2.0)          # initial stop = entry - N x ATR
-MAX_POSITION_PCT = _f("MAX_POSITION_PCT", 20.0)   # max % of capital in one stock
+# Hard concentration limit. The 1% risk rule assumes the stop HOLDS; this cap is the
+# second line of defence for when it doesn't (overnight gap, halt). It therefore wins:
+# qty = min(risk-based, cap-based). 25% lets the 1% target be met on tight-stop setups
+# while still bounding single-name gap risk.
+MAX_POSITION_PCT = _f("MAX_POSITION_PCT", 25.0)
 MAX_OPEN_POSITIONS = _i("MAX_OPEN_POSITIONS", 6)
+# Total deployed capital ceiling. Without this, 6 positions x 25% = 150% — i.e. the
+# per-position cap alone permits over-deploying. Always keep some cash.
+MAX_TOTAL_DEPLOYED_PCT = _f("MAX_TOTAL_DEPLOYED_PCT", 90.0)
 
 # --- Q5: the exit ladder ------------------------------------------------------
 BREAKEVEN_R = _f("BREAKEVEN_R", 1.0)              # move stop to entry at +1R

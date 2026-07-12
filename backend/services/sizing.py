@@ -34,8 +34,18 @@ def size_position(
     swing_low: float | None = None,
     capital: float = None,
     risk_pct: float = None,
+    deployed_value: float = 0.0,
+    open_positions: int = 0,
 ) -> dict:
-    """Return quantity, stop, and the risk breakdown for one trade."""
+    """Return quantity, stop, and the risk breakdown for one trade.
+
+    Sizing is risk-first, then clipped by hard limits (a limit always wins over the
+    risk target — under-risking is safe, over-concentrating is not):
+      1. risk-based   : qty = (capital x risk%) / (entry - stop)
+      2. per-position : <= MAX_POSITION_PCT of capital
+      3. total cash   : <= MAX_TOTAL_DEPLOYED_PCT of capital across all open trades
+      4. slot limit   : reject if already at MAX_OPEN_POSITIONS
+    """
     capital = capital if capital is not None else C.CAPITAL
     risk_pct = risk_pct if risk_pct is not None else C.RISK_PCT
 
@@ -45,15 +55,24 @@ def size_position(
 
     if risk_per_share <= 0:
         return {**s, "qty": 0, "reason": "stop is at/above entry — no valid trade"}
+    if open_positions >= C.MAX_OPEN_POSITIONS:
+        return {**s, "qty": 0,
+                "reason": f"already at max {C.MAX_OPEN_POSITIONS} open positions"}
 
-    risk_amount = capital * risk_pct / 100.0
-    qty = math.floor(risk_amount / risk_per_share)
+    target_risk = capital * risk_pct / 100.0
+    qty_risk = math.floor(target_risk / risk_per_share)
 
-    # Cap: no single position may exceed MAX_POSITION_PCT of capital.
-    max_value = capital * C.MAX_POSITION_PCT / 100.0
-    qty_cap = math.floor(max_value / entry) if entry > 0 else 0
-    capped = qty > qty_cap
-    qty = min(qty, qty_cap)
+    # 2. per-position concentration cap
+    qty_position = math.floor(capital * C.MAX_POSITION_PCT / 100.0 / entry) if entry > 0 else 0
+
+    # 3. remaining cash under the total-deployment ceiling
+    room = capital * C.MAX_TOTAL_DEPLOYED_PCT / 100.0 - deployed_value
+    qty_cash = math.floor(max(room, 0.0) / entry) if entry > 0 else 0
+
+    qty = max(min(qty_risk, qty_position, qty_cash), 0)
+    binding = None
+    if qty < qty_risk:
+        binding = "max_position_pct" if qty == qty_position else "cash_available"
 
     position_value = qty * entry
     actual_risk = qty * risk_per_share
@@ -66,8 +85,11 @@ def size_position(
         "risk_per_share": round(risk_per_share, 2),   # = 1R per share
         "risk_amount": round(actual_risk, 2),         # rupees at risk if stop hits
         "risk_pct_of_capital": round(actual_risk / capital * 100.0, 2),
+        "target_risk_pct": risk_pct,
         "position_value": round(position_value, 2),
         "position_pct_of_capital": round(position_value / capital * 100.0, 2),
-        "capped_by_max_position": capped,
+        "binding_constraint": binding,                 # None = full 1% risk achieved
+        "qty_uncapped": int(qty_risk),
         "capital": capital,
+        "deployed_after": round(deployed_value + position_value, 2),
     }

@@ -623,9 +623,32 @@ bouncy the stock. **That's the whole point.**
 
 ### Safety caps (so no single trade dominates)
 
-- **≤ 20% of capital** in any one stock (even if the math allows more).
+- **≤ 25% of capital** in any one stock (even if the math allows more).
 - **≤ 6 positions** open at once (don't spread too thin or over-concentrate).
-- Always keep some **cash** — for new opportunities and emergencies.
+- **≤ 90% of capital deployed** in total — always keep cash for opportunities and
+  emergencies.
+
+> **Why a cap at all, when we already risk only 1%?** Because the 1% rule assumes
+> **the stop holds**. It won't always: a stock can **gap down** overnight, straight
+> through your stop, and open 20% lower. Then your loss isn't 1R — it's the gap. The
+> position cap is the **second line of defence** for exactly that. So the cap always
+> **wins** over the risk target:
+>
+> ```
+>   Quantity = the SMALLEST of:
+>        (1% of capital) ÷ (entry − stop)     ← the risk target
+>        25% of capital  ÷ entry              ← per-stock cap
+>        remaining cash  ÷ entry              ← total-deployment cap
+> ```
+>
+> Sometimes this means you risk *less* than 1% on a trade. **That's fine** — risking
+> less is never the thing that hurts you. In the worked example above, 50 shares =
+> ₹25,000 = exactly the 25% cap, so the full 1% risk is achievable. On a stock with an
+> even tighter stop, the cap would bind and you'd risk slightly under 1%.
+>
+> ⚠️ Note the caps must be mutually consistent: 6 positions × 25% = 150%, which is
+> impossible. The **90% total-deployment ceiling** is what actually binds once you hold
+> several names — so later positions get smaller, and that is by design.
 
 ---
 
@@ -854,9 +877,10 @@ starting points.
 | Momentum confirm | RSI > 50 and rising vs 5 days ago | Q3 |
 | MTF confirm | weekly close > weekly EMA20 (or weekly RSI > 55) | Q3 |
 | No-chase limit | skip if > ~8–10% past breakout | Q3 |
-| Risk per trade | **1%** of capital | Q4 |
+| Risk per trade | **1%** of capital (a *target* — caps below may reduce it) | Q4 |
 | Initial stop | tighter of swing low / **2×ATR(14)** | Q4/Q5 |
-| Max per position | 20% of capital | Q4 |
+| Max per position | **25%** of capital (hard limit, wins over risk target) | Q4 |
+| Max total deployed | **90%** of capital (always keep cash) | Q4 |
 | Max open positions | 6 | Q4 |
 | Breakeven | move stop to entry at **+1R** | Q5 |
 | Partial book | sell half at **+2R** | Q5 |
