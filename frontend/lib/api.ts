@@ -105,6 +105,48 @@ async function get<T>(path: string): Promise<T> {
   return res.json();
 }
 
+export interface Trade {
+  id: number;
+  symbol: string;
+  status: "open" | "closed";
+  entry_ts: string;
+  entry_price: number;
+  qty: number;
+  qty_open: number | null;
+  initial_stop: number;
+  current_stop: number;
+  r_value: number;
+  highest_since_entry: number | null;
+  moved_to_breakeven: boolean;
+  partial_booked: boolean;
+  partial_ts: string | null;
+  partial_price: number | null;
+  partial_qty: number | null;
+  exit_ts: string | null;
+  exit_price: number | null;
+  exit_reason: string | null;
+  pnl: number | null;
+  r_multiple: number | null;
+  days_held: number | null;
+  sector: string | null;
+  sector_quadrant: Quadrant | null;
+  capital_at_entry: number | null;
+  entry_context: Record<string, any> | null;
+  exit_context: Record<string, any> | null;
+}
+
+export interface PaperStats {
+  closed_trades: number;
+  win_rate_pct?: number;
+  avg_win_R?: number;
+  avg_loss_R?: number;
+  expectancy_R?: number;
+  total_pnl?: number;
+  max_drawdown?: number;
+  open_trades?: number;
+  exit_reasons?: Record<string, number>;
+}
+
 export interface Settings {
   CAPITAL: number;
   RISK_PCT: number;
@@ -133,7 +175,9 @@ export const api = {
   candles: (symbol: string, interval = "1day", limit = 250) =>
     get<Candles>(`/candles/${symbol}?interval=${interval}&limit=${limit}`),
   config: () => get<Record<string, number | string | boolean>>("/config"),
-  positions: (status = "open") => get<Record<string, unknown>[]>(`/positions?status=${status}`),
+  positions: (status = "all", runTag = "replay") =>
+    get<Trade[]>(`/positions?status=${status}&run_tag=${runTag}`),
+  paperStats: (runTag = "replay") => get<PaperStats>(`/paper/stats?run_tag=${runTag}`),
   size: async (body: Record<string, number | null>): Promise<Sizing> => {
     const res = await fetch(`${BASE}/size`, {
       method: "POST",

@@ -50,6 +50,7 @@ export default function CandleChart({
   priceLines = [],
   chartType = "candles",
   markers = [],
+  focus,
 }: {
   symbol: string;
   interval?: string;
@@ -62,6 +63,9 @@ export default function CandleChart({
   chartType?: "candles" | "line";
   /** Entry / partial / exit arrows — where the trade actually happened. */
   markers?: Marker[];
+  /** Zoom to a window (YYYY-MM-DD). Without it a trade gets squeezed into the
+   *  right-hand edge of a multi-year chart and you can't see anything. */
+  focus?: { from: string; to: string };
 }) {
   const box = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -178,7 +182,18 @@ export default function CandleChart({
       })
     );
 
-    chart.timeScale().fitContent();
+    if (focus) {
+      try {
+        chart.timeScale().setVisibleRange({
+          from: focus.from as Time,
+          to: focus.to as Time,
+        });
+      } catch {
+        chart.timeScale().fitContent();
+      }
+    } else {
+      chart.timeScale().fitContent();
+    }
 
     // Responsive: follow the container, not the window.
     const ro = new ResizeObserver(([e]) =>
@@ -191,7 +206,7 @@ export default function CandleChart({
       chart.remove();
       chartRef.current = null;
     };
-  }, [data, height, interval, overlays, priceLines, chartType, markers]);
+  }, [data, height, interval, overlays, priceLines, chartType, markers, focus]);
 
   if (err) return <div className="p-4 text-sm text-ink-muted">Chart unavailable: {err}</div>;
   if (!data) return <div className="p-4 text-sm text-ink-muted">Loading chart…</div>;

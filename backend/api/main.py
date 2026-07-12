@@ -18,6 +18,7 @@ from backend import strategy_config as C
 from backend.db import ping, read_sql, scalar
 from backend.services import base as q2, entry as q3
 from backend.services.exits import evaluate_exit
+from backend.services.paper import replay, run_cycle, stats
 from backend.services.regime import get_regime
 from backend.services.sector import latest_ranking
 from backend.services.sizing import size_position
@@ -270,12 +271,39 @@ def settings_reset() -> dict:
 # ---------------------------------------------------------------------------
 
 @app.get("/positions", tags=["Q5 · exits"])
-def positions(status: str = Query("open", pattern="^(open|closed|all)$")) -> list[dict]:
-    """Paper trades with their exit-ladder state."""
-    where = "" if status == "all" else "WHERE status = :st"
-    df = read_sql(f"SELECT * FROM paper_trades {where} ORDER BY entry_ts DESC",
-                  {} if status == "all" else {"st": status})
+def positions(
+    status: str = Query("all", pattern="^(open|closed|all)$"),
+    run_tag: str = Query("replay", pattern="^(live|replay)$"),
+) -> list[dict]:
+    """Paper trades with their exit-ladder state and the full captured context."""
+    clauses = ["run_tag = :rt"]
+    params: dict = {"rt": run_tag}
+    if status != "all":
+        clauses.append("status = :st")
+        params["st"] = status
+    df = read_sql(
+        f"SELECT * FROM paper_trades WHERE {' AND '.join(clauses)} ORDER BY entry_ts DESC",
+        params,
+    )
     return _records(df)
+
+
+@app.get("/paper/stats", tags=["Q5 · exits"])
+def paper_stats(run_tag: str = Query("replay", pattern="^(live|replay)$")) -> dict:
+    """The scoreboard: win rate, avg R, expectancy, max drawdown. Is the edge real?"""
+    return _clean(stats(run_tag))
+
+
+@app.post("/paper/run", tags=["Q5 · exits"])
+def paper_run(asof: str | None = None) -> dict:
+    """Run one automatic cycle: advance exits, then take any qualifying entries."""
+    return _clean(run_cycle(asof=asof, run_tag="live"))
+
+
+@app.post("/paper/replay", tags=["Q5 · exits"])
+def paper_replay(start: str, end: str) -> dict:
+    """Re-run the funnel day-by-day over history to rebuild the track record."""
+    return _clean(replay(start, end, reset=True))
 
 
 class ExitRequest(BaseModel):
