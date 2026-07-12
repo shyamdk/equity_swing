@@ -27,6 +27,8 @@ def evaluate_exit(
     days_held: int,
     moved_to_breakeven: bool = False,
     partial_booked: bool = False,
+    latest_low: float | None = None,
+    latest_open: float | None = None,
 ) -> dict:
     """Advance the exit ladder one bar. Returns the new state + any exit action.
 
@@ -64,13 +66,26 @@ def evaluate_exit(
         actions.append("chandelier trail raised")
 
     # --- exit conditions ---
-    exit_now, exit_reason = False, None
-    if latest_close <= new_stop:
+    # A stop is a resting order: it triggers on the intraday LOW, and it FILLS at the
+    # stop price — not at the day's close. Filling at the close is what let losers run
+    # past the 1R cap the whole strategy depends on. If the bar gapped straight through
+    # the stop, the honest fill is that gap-down open.
+    low = latest_low if latest_low is not None else latest_close
+    opn = latest_open if latest_open is not None else latest_close
+
+    exit_now, exit_reason, exit_price = False, None, None
+    if low <= new_stop:
         exit_now = True
         exit_reason = "stop" if not moved_to_breakeven else "trail"
-    elif days_held >= C.TIME_STOP_DAYS and gain_pct < C.TIME_STOP_MIN_GAIN_PCT:
+        exit_price = min(new_stop, opn)      # gap-down → you fill at the open, worse
+    elif (
+        days_held >= C.TIME_STOP_DAYS
+        and gain_pct < C.TIME_STOP_MIN_GAIN_PCT
+        and r_multiple < C.TIME_STOP_MIN_R      # …and not making R progress either
+    ):
         exit_now = True
         exit_reason = "time"          # dead money is a cost
+        exit_price = latest_close
 
     return {
         "r_value": round(r, 2),
@@ -85,6 +100,7 @@ def evaluate_exit(
         "actions": actions,
         "exit": exit_now,
         "exit_reason": exit_reason,
+        "exit_price": round(exit_price, 2) if exit_price is not None else None,
         "checklist": {
             "above_stop": latest_close > new_stop,
             "reached_breakeven": moved_to_breakeven,

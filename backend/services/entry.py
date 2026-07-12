@@ -91,11 +91,14 @@ def _evaluate(g: pd.DataFrame, wk: pd.DataFrame | None) -> dict | None:
 
 
 def scan(symbols: list[str] | None = None, from_watchlist: bool = True,
-         only_passed: bool = False) -> pd.DataFrame:
-    """Run Q3. By default only over stocks that passed Q2 (the watchlist)."""
+         only_passed: bool = False, asof: str | None = None) -> pd.DataFrame:
+    """Run Q3. By default only over stocks that passed Q2 (the watchlist).
+
+    `asof` restricts every input to candles that existed on that date (replay safety).
+    """
     if symbols is None:
         if from_watchlist:
-            wl = q2.scan(only_passed=True)
+            wl = q2.scan(only_passed=True, asof=asof)
             symbols = wl["symbol"].tolist() if not wl.empty else []
         else:
             symbols = universe()
@@ -103,8 +106,8 @@ def scan(symbols: list[str] | None = None, from_watchlist: bool = True,
         logger.info("Q3: empty watchlist — nothing to check")
         return pd.DataFrame()
 
-    daily = recent_candles("1day", _DAILY_NEEDED, symbols)
-    weekly = recent_candles("1week", 5, symbols)
+    daily = recent_candles("1day", _DAILY_NEEDED, symbols, asof=asof)
+    weekly = recent_candles("1week", 5, symbols, asof=asof)
     if daily.empty:
         return pd.DataFrame()
 
@@ -121,8 +124,10 @@ def scan(symbols: list[str] | None = None, from_watchlist: bool = True,
     sectors = read_sql(
         "SELECT symbol, industry AS sector FROM symbols WHERE is_index = FALSE"
     )
-    df = df.merge(sectors, on="symbol", how="left").merge(
-        sector_snapshot(), on="sector", how="left")
+    snap = sector_snapshot(asof=asof)
+    if not snap.empty:
+        snap = snap[["sector", "quadrant", "sector_score", "rs_ratio", "rs_momentum"]]
+    df = df.merge(sectors, on="symbol", how="left").merge(snap, on="sector", how="left")
 
     df["sector_ok"] = True
     if C.SECTOR_AGGRESSIVE:

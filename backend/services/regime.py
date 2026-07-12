@@ -11,9 +11,9 @@ import pandas as pd
 from backend.services.benchmark import BENCHMARK_SYMBOL, benchmark_daily
 
 
-def get_regime() -> dict:
-    """Return the current market-regime verdict with a pass/fail checklist."""
-    df = benchmark_daily(260)
+def get_regime(asof: str | None = None) -> dict:
+    """Market-regime verdict with a pass/fail checklist, as it stood on `asof`."""
+    df = benchmark_daily(260, asof=asof)
     if df.empty or len(df) < 200:
         return {"benchmark": BENCHMARK_SYMBOL, "healthy": False,
                 "reason": "insufficient benchmark history", "checklist": {}}

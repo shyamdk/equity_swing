@@ -104,7 +104,9 @@ def build_benchmark() -> dict:
     return {"daily": n_day, "weekly": n_week, "last_level": round(float(level.iloc[-1]), 2)}
 
 
-def benchmark_daily(n: int = 300) -> pd.DataFrame:
-    """Read the last N daily candles of the benchmark (oldest-first)."""
-    from backend.database import get_latest_candles
-    return get_latest_candles(BENCHMARK_SYMBOL, "1day", n)
+def benchmark_daily(n: int = 300, asof: str | None = None) -> pd.DataFrame:
+    """Last N daily benchmark candles at or before `asof` (oldest-first)."""
+    from backend.services._data import recent_candles
+
+    df = recent_candles("1day", n, [BENCHMARK_SYMBOL], asof=asof)
+    return df.reset_index(drop=True)

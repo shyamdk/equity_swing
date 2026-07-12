@@ -85,10 +85,17 @@ def _evaluate(g: pd.DataFrame) -> dict | None:
     }
 
 
-def scan(symbols: list[str] | None = None, only_passed: bool = False) -> pd.DataFrame:
-    """Run Q2 across the universe. Returns one row per symbol with its checklist."""
+def scan(
+    symbols: list[str] | None = None,
+    only_passed: bool = False,
+    asof: str | None = None,
+) -> pd.DataFrame:
+    """Run Q2 across the universe. Returns one row per symbol with its checklist.
+
+    `asof` restricts the scan to candles that existed on that date (replay safety).
+    """
     symbols = symbols or universe()
-    candles = recent_candles("1day", _NEEDED, symbols)
+    candles = recent_candles("1day", _NEEDED, symbols, asof=asof)
     if candles.empty:
         return pd.DataFrame()
 
@@ -103,7 +110,11 @@ def scan(symbols: list[str] | None = None, only_passed: bool = False) -> pd.Data
         "SELECT symbol, industry AS sector FROM symbols WHERE is_index = FALSE"
     )
     df = df.merge(sectors, on="symbol", how="left")
-    df = df.merge(sector_snapshot(), on="sector", how="left")
+    snap = sector_snapshot(asof=asof)
+    df = df.merge(
+        snap[["sector", "quadrant", "sector_score"]] if not snap.empty else snap,
+        on="sector", how="left",
+    )
 
     df = df.sort_values(["passed", "sector_score"], ascending=[False, False])
     df = df.reset_index(drop=True)
