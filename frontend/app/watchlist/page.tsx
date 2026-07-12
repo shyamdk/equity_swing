@@ -14,9 +14,16 @@ import {
 } from "@/components/ui";
 import { useEffect, useState } from "react";
 
+type Sort = "closest" | "sector" | "tightest";
+
+/** How far the price still has to travel to clear the lid and trigger Q3. */
+const toLid = (r: BaseRow) => ((r.base_high - r.close) / r.close) * 100;
+
 export default function WatchlistPage() {
   const [rows, setRows] = useState<BaseRow[] | null>(null);
   const [onlyPassed, setOnlyPassed] = useState(true);
+  const [quadrant, setQuadrant] = useState<string>("all");
+  const [sort, setSort] = useState<Sort>("closest");
   const [open, setOpen] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
@@ -24,6 +31,14 @@ export default function WatchlistPage() {
     setRows(null);
     api.watchlist(onlyPassed).then(setRows).catch((e) => setErr(String(e)));
   }, [onlyPassed]);
+
+  const view = (rows ?? [])
+    .filter((r) => quadrant === "all" || r.quadrant === quadrant)
+    .sort((a, b) => {
+      if (sort === "closest") return toLid(a) - toLid(b);
+      if (sort === "tightest") return a.base_range_pct - b.base_range_pct;
+      return (b.sector_score ?? -Infinity) - (a.sector_score ?? -Infinity);
+    });
 
   if (err) return <ErrorBox error={err} />;
 
@@ -41,7 +56,7 @@ export default function WatchlistPage() {
       <Legend terms={Q2_TERMS} />
 
       {/* filters sit in one row above the content */}
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <label className="inline-flex items-center gap-2 text-sm text-ink-2">
           <input
             type="checkbox"
@@ -49,20 +64,53 @@ export default function WatchlistPage() {
             onChange={(e) => setOnlyPassed(e.target.checked)}
             className="h-4 w-4"
           />
-          Only show stocks that passed all checks
+          Only stocks that passed all checks
         </label>
-        {rows && <span className="text-sm text-ink-muted">{rows.length} stocks</span>}
+
+        <label className="inline-flex items-center gap-2 text-sm text-ink-2">
+          Sector:
+          <select
+            value={quadrant}
+            onChange={(e) => setQuadrant(e.target.value)}
+            className="rounded-lg border border-hairline bg-surface px-2 py-1 text-sm text-ink"
+          >
+            <option value="all">All sectors</option>
+            <option value="leading">🟢 Leading — wind behind it</option>
+            <option value="improving">🔵 Improving — turning up</option>
+            <option value="weakening">🟠 Weakening — fading</option>
+            <option value="lagging">🔴 Lagging — we skip these</option>
+          </select>
+        </label>
+
+        <label className="inline-flex items-center gap-2 text-sm text-ink-2">
+          Sort by:
+          <select
+            value={sort}
+            onChange={(e) => setSort(e.target.value as Sort)}
+            className="rounded-lg border border-hairline bg-surface px-2 py-1 text-sm text-ink"
+          >
+            <option value="closest">Closest to breakout</option>
+            <option value="sector">Hottest sector</option>
+            <option value="tightest">Tightest base</option>
+          </select>
+        </label>
+
+        <span className="text-sm text-ink-muted">
+          {view.length} of {rows?.length ?? 0} stocks
+        </span>
       </div>
 
       {!rows ? (
         <Loading what="the watchlist" />
-      ) : rows.length === 0 ? (
+      ) : view.length === 0 ? (
         <Empty>
-          Nothing is in a valid base right now. That&apos;s normal — patience is part of the edge.
+          {rows.length === 0
+            ? "Nothing is in a valid base right now. That's normal — patience is part of the edge."
+            : "No stocks in a base match this sector filter. Try 'All sectors'."}
         </Empty>
       ) : (
         <div className="grid gap-4 md:grid-cols-2">
-          {rows.map((r) => (
+          {view.map((r) => (
             <Card key={r.symbol}>
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div className="min-w-0">
@@ -86,7 +134,13 @@ export default function WatchlistPage() {
                 </div>
               </div>
 
-              <div className="mt-3 grid grid-cols-3 gap-2 text-sm">
+              <div className="mt-3 grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
+                <Metric
+                  label="To lid"
+                  value={`${toLid(r) <= 0 ? "at/above" : "+" + toLid(r).toFixed(1) + "%"}`}
+                  good={toLid(r) <= 3}
+                  hint={`How far the price must still rise to clear the lid (₹${r.base_high}) and trigger a Q3 breakout. This — not the sector badge — is what "close to breaking out" means.`}
+                />
                 <Metric
                   label="Turnover"
                   value={`₹${r.turnover_cr.toFixed(1)} Cr`}
@@ -140,14 +194,29 @@ export default function WatchlistPage() {
   );
 }
 
-function Metric({ label, value, hint }: { label: string; value: string; hint?: string }) {
+function Metric({
+  label,
+  value,
+  hint,
+  good,
+}: {
+  label: string;
+  value: string;
+  hint?: string;
+  good?: boolean;
+}) {
   return (
     <div className="rounded-lg bg-page px-2.5 py-2" title={hint}>
       <div className="flex items-center gap-1 text-xs text-ink-muted">
         {label}
         {hint && <span aria-hidden>ⓘ</span>}
       </div>
-      <div className="tnum mt-0.5 font-medium text-ink">{value}</div>
+      <div
+        className="tnum mt-0.5 font-medium"
+        style={{ color: good ? "var(--good)" : "var(--ink)" }}
+      >
+        {value}
+      </div>
     </div>
   );
 }
