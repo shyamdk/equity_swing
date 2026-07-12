@@ -1,0 +1,81 @@
+@import "tailwindcss";
+
+/* ============================================================================
+   Design tokens — data-viz palette, validated in BOTH modes (lightness band,
+   chroma floor, CVD separation, contrast all pass).
+   Quadrants: green / blue / orange / red — yellow failed contrast on light.
+   Status colours always ship with an icon + label, never colour alone.
+   ========================================================================== */
+:root {
+  --page: #f9f9f7;
+  --surface: #fcfcfb;
+  --ink: #0b0b0b;
+  --ink-2: #52514e;
+  --ink-muted: #898781;
+  --grid: #e1e0d9;
+  --hairline: rgba(11, 11, 11, 0.1);
+
+  --good: #0ca30c;
+  --critical: #d03b3b;
+
+  --leading: #0ca30c;
+  --improving: #2a78d6;
+  --weakening: #eb6834;
+  --lagging: #d03b3b;
+
+  --up: #0ca30c;
+  --down: #d03b3b;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --page: #0d0d0d;
+    --surface: #1a1a19;
+    --ink: #ffffff;
+    --ink-2: #c3c2b7;
+    --ink-muted: #898781;
+    --grid: #2c2c2a;
+    --hairline: rgba(255, 255, 255, 0.1);
+
+    --leading: #008300;
+    --improving: #3987e5;
+    --weakening: #d95926;
+    --lagging: #d03b3b;
+  }
+}
+
+@theme inline {
+  --color-page: var(--page);
+  --color-surface: var(--surface);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-muted: var(--ink-muted);
+  --color-grid: var(--grid);
+  --color-hairline: var(--hairline);
+  --color-good: var(--good);
+  --color-critical: var(--critical);
+  --color-leading: var(--leading);
+  --color-improving: var(--improving);
+  --color-weakening: var(--weakening);
+  --color-lagging: var(--lagging);
+  --font-sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+html,
+body {
+  background: var(--page);
+  color: var(--ink);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Wide content scrolls inside its own box — the page never scrolls sideways. */
+.scroll-x {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Columns of figures must align vertically. */
+.tnum {
+  font-variant-numeric: tabular-nums;
+}

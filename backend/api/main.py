@@ -28,10 +28,11 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# Next.js dev server.
+# Next.js dev server. Next picks the first free port from 3000, so allow a range
+# rather than pinning one — otherwise the browser silently CORS-blocks every call.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origin_regex=r"http://(localhost|127\.0\.0\.1):(300\d|301\d)",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
